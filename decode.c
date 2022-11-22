@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "lib/packet_fields.h"
+#include <netinet/in.h>
 
 enum return_codes {
 	SUCCESS = 0,
@@ -15,6 +16,9 @@ enum program_defaults {
 
 int load_packets(struct zerg_header *payloads, size_t num_packets,
 		 size_t max_packets, FILE * fo);
+int shift_24_bit_int(unsigned int num);
+int load_message(struct zerg_header *payloads, size_t index, size_t length,
+		 FILE * fo);
 
 int main(int argc, char *argv[])
 {
@@ -22,7 +26,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Usage: %s [FILE]\n", argv[0]);
 		return (INVOCATION_ERROR);
 	}
-	FILE *fo = fopen(argv[1], "r");
+	FILE *fo = fopen(argv[1], "rb");
 	if (!fo) {
 		fprintf(stderr, "%s could not be opened", argv[1]);
 		perror(" \b");
@@ -38,7 +42,7 @@ int main(int argc, char *argv[])
 	// as well as endianness
 	printf("Version: %x.%x\n", fh.major_version, fh.minor_version);
 
-	load_packets(payloads, DEFAULT_PACKET_NUM, DEFAULT_PACKET_NUM, fo);
+	load_packets(payloads, 0, DEFAULT_PACKET_NUM, fo);
 
 	fclose(fo);
 	free(payloads);
@@ -68,13 +72,19 @@ int load_packets(struct zerg_header *payloads, size_t num_packets,
 	fread(&zh, 1, sizeof(zh) - sizeof(zh.zerg_payload), fo);
 
 	printf("zerg type: %u\n", zh.zerg_packet_type);
-	printf("zerg sequence: %x\n", zh.zerg_len);
+
+	// TODO: reallocate payloads before loading new packet
 
 	switch (zh.zerg_packet_type) {
 
 	case 0:
-		// Parse message packet
-		break;
+		{
+			unsigned int corrected_len =
+			    shift_24_bit_int(zh.zerg_len);
+			corrected_len -= 12;	// subtract fixed header length to get strlen
+			load_message(payloads, num_packets, corrected_len, fo);
+			break;
+		}
 	case 1:
 		// Parse status packet
 		break;
@@ -85,8 +95,36 @@ int load_packets(struct zerg_header *payloads, size_t num_packets,
 		// Parse GPS packet
 		break;
 	default:
-        // Discard packet 
-        break;
+		// Discard packet 
+		break;
 	}
+	printf("Message: %s",
+	       ((struct zerg_message *)payloads[0].zerg_payload)->message);
 	return (1);
+}
+
+int load_message(struct zerg_header *payloads, size_t index, size_t length,
+		 FILE * fo)
+{
+	// TODO: Discard packets with letter V
+	char *message = malloc(length + 1);
+	size_t read_length = fread(message, 1, length, fo);
+
+	message[length] = '\0';
+	// TODO: Mass free for all message packets, error handle malloc
+	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
+	message_struct->message = message;
+	payloads[index].zerg_payload = message_struct;
+
+	return (1);
+}
+
+int shift_24_bit_int(unsigned int num)
+// Reverses the byte order of a 24 bit integer
+{
+	unsigned int tmp_len = 0;
+	tmp_len = num & 0xFF;
+	tmp_len = (num >> 8) & 0xFF;
+	tmp_len = (num >> 16) & 0xFF;
+	return (tmp_len);
 }
