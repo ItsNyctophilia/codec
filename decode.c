@@ -18,12 +18,10 @@ int load_packets(struct zerg_header *payloads, size_t num_packets,
 		 size_t max_packets, FILE * fo);
 int shift_24_bit_int(unsigned int num);
 float reverse_float(const float num);
-int load_message(struct zerg_header *payloads, size_t index, size_t length,
-		 FILE * fo);
-int load_status(struct zerg_header *payloads, size_t index, size_t length,
-		FILE * fo);
-int load_command(struct zerg_header *payloads, size_t index, size_t length,
-		FILE * fo);
+int load_message(struct zerg_header *payloads, size_t length, FILE * fo);
+int load_status(struct zerg_header *payloads, size_t length, FILE * fo);
+int load_command(struct zerg_header *payloads, size_t length, FILE * fo);
+int load_gps(struct zerg_header *payloads, size_t length, FILE * fo);
 void destroy_payloads(struct zerg_header *payloads, int num_payloads);
 int resize_array(struct zerg_header *payloads, int num_payloads,
 		 int max_payloads);
@@ -49,7 +47,7 @@ int main(int argc, char *argv[])
 		return (MEMORY_ERROR);
 	}
 
-	struct pcap_header fh;
+	struct pcap_header fh;	// [f]ile [h]eader
 	fread(&fh, 1, sizeof(fh), fo);
 	// TODO: Check major/minor version and magic num for pcap validity
 	// as well as endianness
@@ -123,38 +121,52 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 		unsigned int corrected_len =
 		    shift_24_bit_int(payloads[num_payloads].zerg_len);
 		corrected_len -= 12;
-		switch (payloads->zerg_packet_type) {
+		switch (payloads[num_payloads].zerg_packet_type) {
 
 		case 0:
 			return_code =
-			    load_message(&payloads[num_payloads], num_payloads,
-					 corrected_len, fo);
+			    load_message(&payloads[num_payloads], corrected_len,
+					 fo);
 			break;
 		case 1:
 			return_code =
-			    load_status(&payloads[num_payloads], num_payloads,
-					corrected_len, fo);
+			    load_status(&payloads[num_payloads], corrected_len,
+					fo);
 			break;
 		case 2:
 			return_code =
-			    load_command(&payloads[num_payloads], num_payloads,
-					corrected_len, fo);
+			    load_command(&payloads[num_payloads], corrected_len,
+					 fo);
 			break;
 		case 3:
-			--num_payloads;
-			return_code = 1;
+			return_code =
+			    load_gps(&payloads[num_payloads], corrected_len,
+				     fo);
 			break;
 		default:
 			--num_payloads;
-			return_code = 1;
+			return_code = 0;
 			break;
 		}
 		if (return_code == 0) {
 			break;
 		} else if (return_code == -1) {
+			// Currently unused; use later for validation
+			// of packets mid-read
 			continue;
 		} else {
 			++num_payloads;
+		}
+		unsigned short len = ntohs(ih.ip_packet_length);
+
+		if (len + 14 < 60) {
+			size_t eth_padding_len = 60 - len - 14;
+			for (size_t i = 0; i < eth_padding_len; ++i) {
+				// Until padding has been removed, read one byte
+				// at a time into ph, which will be overwritten
+				// when the next packet is read anyway.
+				fread(&ph, 1, 1, fo);
+			}
 		}
 	}
 
@@ -163,8 +175,8 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 	return (num_payloads);
 }
 
-int load_message(struct zerg_header *payloads, size_t index, size_t length,
-		 FILE * fo)
+int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
+// Loads the message payload from a given zerg packet.
 {
 	// TODO: Discard packets with letter V
 	char *message = malloc(length + 1);
@@ -178,12 +190,12 @@ int load_message(struct zerg_header *payloads, size_t index, size_t length,
 	// TODO: Error handle malloc
 	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
 	message_struct->message = message;
-	payloads[index].zerg_payload = message_struct;
+	payloads->zerg_payload = message_struct;
 	return (1);
 }
 
-int load_status(struct zerg_header *payloads, size_t index, size_t length,
-		FILE * fo)
+int load_status(struct zerg_header *payloads, size_t length, FILE * fo)
+// Loads the status payload from a given zerg packet.
 {
 	size_t string_len = length - 12;
 	// TODO: handle malloc calls
@@ -207,23 +219,38 @@ int load_status(struct zerg_header *payloads, size_t index, size_t length,
 	}
 	name[string_len] = '\0';
 	status_struct->name = name;
-	payloads[index].zerg_payload = status_struct;
+	payloads->zerg_payload = status_struct;
 	return (1);
 }
 
-int load_command(struct zerg_header *payloads, size_t index, size_t length,
-		FILE * fo)
+int load_command(struct zerg_header *payloads, size_t length, FILE * fo)
+// Loads the command payload from a given zerg packet.
 {
-    struct zerg_command *command_struct = calloc(1, sizeof(*command_struct));
-    // TODO: Error handle calloc call
-    size_t read_length = fread(command_struct, 1, length, fo);
-    if (read_length != length) {
+	struct zerg_command *command_struct =
+	    calloc(1, sizeof(*command_struct));
+	// TODO: Error handle calloc call
+	size_t read_length = fread(command_struct, 1, length, fo);
+	if (read_length != length) {
 		// Case: EOF
 		free(command_struct);
 		return (0);
 	}
-    payloads[index].zerg_payload = command_struct;
-    return(1);
+	payloads->zerg_payload = command_struct;
+	return (1);
+}
+
+int load_gps(struct zerg_header *payloads, size_t length, FILE * fo)
+// Loads the gps payload from a given zerg packet.
+{
+	struct zerg_gps *gps_struct = malloc(sizeof(*gps_struct));
+	size_t read_length = fread(gps_struct, 1, length, fo);
+	if (read_length != length) {
+		// Case: EOF
+		free(gps_struct);
+		return (0);
+	}
+	payloads->zerg_payload = gps_struct;
+	return (1);
 }
 
 int shift_24_bit_int(const unsigned int num)
@@ -257,7 +284,7 @@ float reverse_float(const float num)
 
 void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 // Destroys the payloads structarray at various stages of it being
-// built and filled out. Syntax borrowed from Liam Echlin in array.c.
+// built and filled out. Syntax taken from Liam Echlin in array.c.
 {
 	if (!payloads) {
 		return;
@@ -266,20 +293,20 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 		printf("Payload type: %u\n", payloads[i].zerg_packet_type);	// DEVPRINT
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].
-			      zerg_payload)->message);
+			free(((struct zerg_message *)payloads[i].zerg_payload)->
+			     message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].zerg_payload)->
-			     name);
+			free(((struct zerg_status *)payloads[i].
+			      zerg_payload)->name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
 			free((struct zerg_command *)payloads[i].zerg_payload);
 			break;
 		case 3:
-			// free GPS packet
+			free((struct zerg_gps *)payloads[i].zerg_payload);
 			break;
 		}
 
