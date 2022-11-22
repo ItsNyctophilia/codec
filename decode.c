@@ -11,7 +11,7 @@ enum return_codes {
 };
 
 enum program_defaults {
-	DEFAULT_PACKET_NUM = 1
+	DEFAULT_PACKET_NUM = 5
 };
 
 int load_packets(struct zerg_header *payloads, size_t num_packets,
@@ -34,94 +34,133 @@ int main(int argc, char *argv[])
 	}
 
 	struct zerg_header *payloads =
-	    malloc(DEFAULT_PACKET_NUM * sizeof *payloads);
-	// TODO: check malloc return code
+	    calloc(DEFAULT_PACKET_NUM, sizeof(*payloads));
+	if (!payloads) {
+		fprintf(stderr, "Memory allocation error.");
+		fclose(fo);
+		return (MEMORY_ERROR);
+	}
+
 	struct pcap_header fh;
 	fread(&fh, 1, sizeof(fh), fo);
 	// TODO: Check major/minor version and magic num for pcap validity
 	// as well as endianness
-	printf("Version: %x.%x\n", fh.major_version, fh.minor_version);
 
 	int num_payloads = load_packets(payloads, 0, DEFAULT_PACKET_NUM, fo);
 
 	fclose(fo);
-	
-    for (int i = 0; i < num_payloads; ++i) {
-        switch (payloads[i].zerg_packet_type) {
-        case 0:
-            free(((struct zerg_message *)payloads[i].zerg_payload)->message);
-            free((struct zerg_message *)payloads[i].zerg_payload);
-			break;
-	    case 1:
-		    // free status packet
-		    break;
-	    case 2:
-		    // free command packet
-		    break;
-	    case 3:
-		    // free GPS packet
-		    break;
-	    }
 
-    }
-    free(payloads);
+	for (int i = 0; i < num_payloads; ++i) {
+
+		switch (payloads[i].zerg_packet_type) {
+		case 0:
+			free(((struct zerg_message *)payloads[i].zerg_payload)->
+			     message);
+			free((struct zerg_message *)payloads[i].zerg_payload);
+			break;
+		case 1:
+			// free status packet
+			break;
+		case 2:
+			// free command packet
+			break;
+		case 3:
+			// free GPS packet
+			break;
+		}
+
+	}
+	free(payloads);
 	return (SUCCESS);
 }
 
-int load_packets(struct zerg_header *payloads, size_t num_packets,
+int load_packets(struct zerg_header *payloads, size_t num_payloads,
 		 size_t max_packets, FILE * fo)
 // Loads zerg packet headers into payloads and returns the number of
 // successfully added packets.
 {
-	struct packet_header ph;
-	struct ethernet_header eh;
-	struct ip_header ih;
-	struct udp_header uh;
-	struct zerg_header zh;
-	fread(&ph, 1, sizeof(ph), fo);
-	// TODO: Check packet header length for validity?
-	// Potential use of fseek and ftell to skip files
+	for (;;) {
+		struct packet_header ph;
+		struct ethernet_header eh;
+		struct ip_header ih;
+		struct udp_header uh;
+		struct zerg_header zh;
+		size_t test_len = 0;
 
-	printf("packet len: %u\n", ph.data_capture_len);
-
-	fread(&eh, 1, sizeof(eh), fo);
-	printf("eth type: %x\n", eh.eth_ethernet_type);
-
-	fread(&ih, 1, sizeof(ih), fo);
-	fread(&uh, 1, sizeof(uh), fo);
-	fread(&zh, 1, sizeof(zh) - sizeof(zh.zerg_payload), fo);
-
-	printf("zerg type: %u\n", zh.zerg_packet_type);
-
-	// TODO: reallocate payloads before loading new packet
-
-	switch (zh.zerg_packet_type) {
-
-	case 0:
-		{
-			unsigned int corrected_len =
-			    shift_24_bit_int(zh.zerg_len);
-			corrected_len -= 12;	// subtract fixed header length to get strlen
-			load_message(payloads, num_packets, corrected_len, fo);
+		test_len = fread(&ph, 1, sizeof(ph), fo);
+		if (test_len != sizeof(ph)) {
+			// Case: EOF reached
 			break;
 		}
-	case 1:
-		// Parse status packet
-		break;
-	case 2:
-		// Parse command packet
-		break;
-	case 3:
-		// Parse GPS packet
-		break;
-	default:
-		// Discard packet 
-		break;
+		// TODO: Check packet header length for validity?
+		// Potential use of fseek and ftell to skip files
+		test_len = fread(&eh, 1, sizeof(eh), fo);
+		if (test_len != sizeof(eh)) {
+			// Case: EOF reached
+			break;
+		}
+
+		test_len = fread(&ih, 1, sizeof(ih), fo);
+		if (test_len != sizeof(ih)) {
+			// Case: EOF reached
+			break;
+		}
+		test_len = fread(&uh, 1, sizeof(uh), fo);
+		if (test_len != sizeof(uh)) {
+			// Case: EOF reached
+			break;
+		}
+		test_len =
+		    fread(&zh, 1, sizeof(zh) - sizeof(zh.zerg_payload), fo);
+		if (test_len != sizeof(zh) - sizeof(zh.zerg_payload)) {
+			// Case: EOF reached
+			break;
+		}
+		// TODO: reallocate payloads before loading new packet
+
+		int return_code = 0;
+		switch (zh.zerg_packet_type) {
+
+		case 0:
+			{
+				unsigned int corrected_len =
+				    shift_24_bit_int(zh.zerg_len);
+				corrected_len -= 12;	// subtract fixed 
+				//header length to get strlen
+				return_code =
+				    load_message(payloads, num_payloads,
+						 corrected_len, fo);
+				break;
+			}
+		case 1:
+			--num_payloads;
+			return_code = 1;
+			break;
+		case 2:
+			--num_payloads;
+			return_code = 1;
+			break;
+		case 3:
+			--num_payloads;
+			return_code = 1;
+			break;
+		default:
+			--num_payloads;
+			return_code = 1;
+			break;
+		}
+		if (return_code == 0) {
+			break;
+		} else if (return_code == -1) {
+			continue;
+		} else {
+			++num_payloads;
+		}
 	}
-	printf("Message: %s\n",
-	       ((struct zerg_message *)payloads[0].zerg_payload)->message);
-    
-	return (1);
+
+	//printf("Message: %s\n",((struct zerg_message *)payloads[0].zerg_payload)->message);
+
+	return (num_payloads);
 }
 
 int load_message(struct zerg_header *payloads, size_t index, size_t length,
@@ -130,13 +169,16 @@ int load_message(struct zerg_header *payloads, size_t index, size_t length,
 	// TODO: Discard packets with letter V
 	char *message = malloc(length + 1);
 	size_t read_length = fread(message, 1, length, fo);
-    // TODO: handle read_length < length
+	if (read_length != length) {
+		// Case: EOF
+		free(message);
+		return (0);
+	}
 	message[length] = '\0';
-	// TODO: Mass free for all message packets, error handle malloc
+	// TODO: Error handle malloc
 	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
 	message_struct->message = message;
 	payloads[index].zerg_payload = message_struct;
-
 	return (1);
 }
 
