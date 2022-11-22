@@ -22,6 +22,8 @@ int load_message(struct zerg_header *payloads, size_t index, size_t length,
 		 FILE * fo);
 int load_status(struct zerg_header *payloads, size_t index, size_t length,
 		FILE * fo);
+int load_command(struct zerg_header *payloads, size_t index, size_t length,
+		FILE * fo);
 void destroy_payloads(struct zerg_header *payloads, int num_payloads);
 int resize_array(struct zerg_header *payloads, int num_payloads,
 		 int max_payloads);
@@ -134,8 +136,9 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 					corrected_len, fo);
 			break;
 		case 2:
-			--num_payloads;
-			return_code = 1;
+			return_code =
+			    load_command(&payloads[num_payloads], num_payloads,
+					corrected_len, fo);
 			break;
 		case 3:
 			--num_payloads;
@@ -208,6 +211,21 @@ int load_status(struct zerg_header *payloads, size_t index, size_t length,
 	return (1);
 }
 
+int load_command(struct zerg_header *payloads, size_t index, size_t length,
+		FILE * fo)
+{
+    struct zerg_command *command_struct = calloc(1, sizeof(*command_struct));
+    // TODO: Error handle calloc call
+    size_t read_length = fread(command_struct, 1, length, fo);
+    if (read_length != length) {
+		// Case: EOF
+		free(command_struct);
+		return (0);
+	}
+    payloads[index].zerg_payload = command_struct;
+    return(1);
+}
+
 int shift_24_bit_int(const unsigned int num)
 // Reverses the byte order of a 24 bit integer. Returns the reversed
 // integer.
@@ -258,7 +276,7 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
-			// free command packet
+			free((struct zerg_command *)payloads[i].zerg_payload);
 			break;
 		case 3:
 			// free GPS packet
