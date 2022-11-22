@@ -11,16 +11,20 @@ enum return_codes {
 };
 
 enum program_defaults {
-	DEFAULT_PACKET_NUM = 1
+	DEFAULT_PACKET_NUM = 5
 };
 
 int load_packets(struct zerg_header *payloads, size_t num_packets,
 		 size_t max_packets, FILE * fo);
 int shift_24_bit_int(unsigned int num);
+float reverse_float(const float num);
 int load_message(struct zerg_header *payloads, size_t index, size_t length,
 		 FILE * fo);
+int load_status(struct zerg_header *payloads, size_t index, size_t length,
+		FILE * fo);
 void destroy_payloads(struct zerg_header *payloads, int num_payloads);
-int resize_array(struct zerg_header *payloads, int num_payloads, int max_payloads);
+int resize_array(struct zerg_header *payloads, int num_payloads,
+		 int max_payloads);
 
 int main(int argc, char *argv[])
 {
@@ -51,7 +55,7 @@ int main(int argc, char *argv[])
 	int num_payloads = load_packets(payloads, 0, DEFAULT_PACKET_NUM, fo);
 
 	fclose(fo);
-    destroy_payloads(payloads, num_payloads);
+	destroy_payloads(payloads, num_payloads);
 
 	return (SUCCESS);
 }
@@ -62,17 +66,17 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 // successfully added packets.
 {
 	for (;;) {
-        int return_code = 0;
-        /*if (num_payloads == max_payloads) {
-            return_code = resize_array(payloads, num_payloads, max_payloads);
-            max_payloads *= 2;
-        }
-        if (return_code == MEMORY_ERROR) {
-            destroy_payloads(payloads, num_payloads);
-            fclose(fo);
-            fprintf(stderr, "Memory allocation Error.\n");
-            exit(MEMORY_ERROR);
-        }*/
+		int return_code = 0;
+		/*if (num_payloads == max_payloads) {
+		   return_code = resize_array(payloads, num_payloads, max_payloads);
+		   max_payloads *= 2;
+		   }
+		   if (return_code == MEMORY_ERROR) {
+		   destroy_payloads(payloads, num_payloads);
+		   fclose(fo);
+		   fprintf(stderr, "Memory allocation Error.\n");
+		   exit(MEMORY_ERROR);
+		   } */
 		struct packet_header ph;
 		struct ethernet_header eh;
 		struct ip_header ih;
@@ -104,29 +108,30 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 			break;
 		}
 		test_len =
-		    fread(&zh, 1, sizeof(zh) - sizeof(zh.zerg_payload), fo);
-		if (test_len != sizeof(zh) - sizeof(zh.zerg_payload)) {
+		    fread(&payloads[num_payloads], 1,
+			  sizeof(zh) - sizeof(zh.zerg_payload), fo);
+		if (test_len !=
+		    sizeof(payloads[num_payloads]) -
+		    sizeof(payloads->zerg_payload)) {
 			// Case: EOF reached
 			break;
 		}
 		// TODO: reallocate payloads before loading new packet
-        return_code = 0;
-		switch (zh.zerg_packet_type) {
-        
+		return_code = 0;
+		unsigned int corrected_len =
+		    shift_24_bit_int(payloads[num_payloads].zerg_len);
+		corrected_len -= 12;
+		switch (payloads->zerg_packet_type) {
+
 		case 0:
-			{
-				unsigned int corrected_len =
-				    shift_24_bit_int(zh.zerg_len);
-				corrected_len -= 12;	// subtract fixed 
-				//header length to get strlen
-				return_code =
-				    load_message(payloads, num_payloads,
-						 corrected_len, fo);
-				break;
-			}
+			return_code =
+			    load_message(&payloads[num_payloads], num_payloads,
+					 corrected_len, fo);
+			break;
 		case 1:
-			--num_payloads;
-			return_code = 1;
+			return_code =
+			    load_status(&payloads[num_payloads], num_payloads,
+					corrected_len, fo);
 			break;
 		case 2:
 			--num_payloads;
@@ -164,7 +169,6 @@ int load_message(struct zerg_header *payloads, size_t index, size_t length,
 	if (read_length != length) {
 		// Case: EOF
 		free(message);
-        destroy_payloads(payloads, index);
 		return (0);
 	}
 	message[length] = '\0';
@@ -172,6 +176,35 @@ int load_message(struct zerg_header *payloads, size_t index, size_t length,
 	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
 	message_struct->message = message;
 	payloads[index].zerg_payload = message_struct;
+	return (1);
+}
+
+int load_status(struct zerg_header *payloads, size_t index, size_t length,
+		FILE * fo)
+{
+	size_t string_len = length - 12;
+	// TODO: handle malloc calls
+	char *name = malloc(string_len + 1);	// String + '\0'
+	struct zerg_status *status_struct = malloc(sizeof(*status_struct));
+
+	size_t read_length = fread(status_struct, 1, length - string_len, fo);
+	if (read_length != length - string_len) {
+		// Case: EOF
+		free(name);
+		free(status_struct);
+		return (0);
+	}
+
+	read_length = fread(name, 1, string_len, fo);
+	if (read_length != string_len) {
+		// Case: EOF
+		free(name);
+		free(status_struct);
+		return (0);
+	}
+	name[string_len] = '\0';
+	status_struct->name = name;
+	payloads[index].zerg_payload = status_struct;
 	return (1);
 }
 
@@ -189,11 +222,11 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 // Destroys the payloads structarray at various stages of it being
 // built and filled out. Syntax borrowed from Liam Echlin in array.c.
 {
-    if (!payloads) {
-        return;
-    }
+	if (!payloads) {
+		return;
+	}
 	for (int i = 0; i < num_payloads; ++i) {
-
+		printf("Payload type: %u\n", payloads[i].zerg_packet_type);	// DEVPRINT
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
 			free(((struct zerg_message *)payloads[i].zerg_payload)->
@@ -201,7 +234,9 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			// free status packet
+			free(((struct zerg_status *)payloads[i].
+			      zerg_payload)->name);
+			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
 			// free command packet
