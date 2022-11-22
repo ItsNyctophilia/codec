@@ -42,16 +42,36 @@ int main(int argc, char *argv[])
 	// as well as endianness
 	printf("Version: %x.%x\n", fh.major_version, fh.minor_version);
 
-	load_packets(payloads, 0, DEFAULT_PACKET_NUM, fo);
+	int num_payloads = load_packets(payloads, 0, DEFAULT_PACKET_NUM, fo);
 
 	fclose(fo);
-	free(payloads);
+	
+    for (int i = 0; i < num_payloads; ++i) {
+        switch (payloads[i].zerg_packet_type) {
+        case 0:
+            free(((struct zerg_message *)payloads[i].zerg_payload)->message);
+            free((struct zerg_message *)payloads[i].zerg_payload);
+			break;
+	    case 1:
+		    // free status packet
+		    break;
+	    case 2:
+		    // free command packet
+		    break;
+	    case 3:
+		    // free GPS packet
+		    break;
+	    }
 
+    }
+    free(payloads);
 	return (SUCCESS);
 }
 
 int load_packets(struct zerg_header *payloads, size_t num_packets,
 		 size_t max_packets, FILE * fo)
+// Loads zerg packet headers into payloads and returns the number of
+// successfully added packets.
 {
 	struct packet_header ph;
 	struct ethernet_header eh;
@@ -98,8 +118,9 @@ int load_packets(struct zerg_header *payloads, size_t num_packets,
 		// Discard packet 
 		break;
 	}
-	printf("Message: %s",
+	printf("Message: %s\n",
 	       ((struct zerg_message *)payloads[0].zerg_payload)->message);
+    
 	return (1);
 }
 
@@ -109,7 +130,7 @@ int load_message(struct zerg_header *payloads, size_t index, size_t length,
 	// TODO: Discard packets with letter V
 	char *message = malloc(length + 1);
 	size_t read_length = fread(message, 1, length, fo);
-
+    // TODO: handle read_length < length
 	message[length] = '\0';
 	// TODO: Mass free for all message packets, error handle malloc
 	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
