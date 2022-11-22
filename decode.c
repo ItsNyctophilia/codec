@@ -208,14 +208,33 @@ int load_status(struct zerg_header *payloads, size_t index, size_t length,
 	return (1);
 }
 
-int shift_24_bit_int(unsigned int num)
-// Reverses the byte order of a 24 bit integer
+int shift_24_bit_int(const unsigned int num)
+// Reverses the byte order of a 24 bit integer. Returns the reversed
+// integer.
+// TODO: Validate this is supposed to be int instead of unsigned int
 {
 	unsigned int tmp_len = 0;
 	tmp_len = num & 0xFF;
 	tmp_len = (num >> 8) & 0xFF;
 	tmp_len = (num >> 16) & 0xFF;
 	return (tmp_len);
+}
+
+float reverse_float(const float num)
+// Reverses the byte order of the passed float. Returns the 
+// reversed float.
+// Syntax taken from Gregor Brandt: https://stackoverflow.com/a/2782742.
+{
+	float ret_val;
+	char *float_to_convert = (char *)&num;
+	char *return_float = (char *)&ret_val;
+
+	return_float[0] = float_to_convert[3];
+	return_float[1] = float_to_convert[2];
+	return_float[2] = float_to_convert[1];
+	return_float[3] = float_to_convert[0];
+
+	return (ret_val);
 }
 
 void destroy_payloads(struct zerg_header *payloads, int num_payloads)
@@ -229,13 +248,13 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 		printf("Payload type: %u\n", payloads[i].zerg_packet_type);	// DEVPRINT
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].zerg_payload)->
-			     message);
+			free(((struct zerg_message *)payloads[i].
+			      zerg_payload)->message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].
-			      zerg_payload)->name);
+			free(((struct zerg_status *)payloads[i].zerg_payload)->
+			     name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
