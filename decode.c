@@ -14,16 +14,20 @@ enum program_defaults {
 	DEFAULT_PACKET_NUM = 5
 };
 
-int load_packets(struct zerg_header *payloads, size_t num_packets,
+int load_packets(struct zerg_header **payloads, size_t num_packets,
 		 size_t max_packets, FILE * fo);
 int shift_24_bit_int(unsigned int num);
 float reverse_float(const float num);
-int load_message(struct zerg_header *payloads, size_t length, FILE * fo);
-int load_status(struct zerg_header *payloads, size_t length, FILE * fo);
-int load_command(struct zerg_header *payloads, size_t length, FILE * fo);
-int load_gps(struct zerg_header *payloads, size_t length, FILE * fo);
+int load_message(struct zerg_header *payloads, size_t index, size_t length,
+		 FILE * fo);
+int load_status(struct zerg_header *payloads, size_t index, size_t length,
+		FILE * fo);
+int load_command(struct zerg_header *payloads, size_t index, size_t length,
+		 FILE * fo);
+int load_gps(struct zerg_header *payloads, size_t index, size_t length,
+	     FILE * fo);
 void destroy_payloads(struct zerg_header *payloads, int num_payloads);
-int resize_array(struct zerg_header *payloads, int num_payloads,
+int resize_array(struct zerg_header **payloads, int num_payloads,
 		 int max_payloads);
 
 int main(int argc, char *argv[])
@@ -52,7 +56,7 @@ int main(int argc, char *argv[])
 	// TODO: Check major/minor version and magic num for pcap validity
 	// as well as endianness
 
-	int num_payloads = load_packets(payloads, 0, DEFAULT_PACKET_NUM, fo);
+	int num_payloads = load_packets(&payloads, 0, DEFAULT_PACKET_NUM, fo);
 
 	fclose(fo);
 	destroy_payloads(payloads, num_payloads);
@@ -60,29 +64,37 @@ int main(int argc, char *argv[])
 	return (SUCCESS);
 }
 
-int load_packets(struct zerg_header *payloads, size_t num_payloads,
+int load_packets(struct zerg_header **payloads, size_t num_payloads,
 		 size_t max_payloads, FILE * fo)
 // Loads zerg packet headers into payloads and returns the number of
 // successfully added packets.
 {
 	for (;;) {
 		int return_code = 0;
-		/*if (num_payloads == max_payloads) {
-		   return_code = resize_array(payloads, num_payloads, max_payloads);
-		   max_payloads *= 2;
-		   }
-		   if (return_code == MEMORY_ERROR) {
-		   destroy_payloads(payloads, num_payloads);
-		   fclose(fo);
-		   fprintf(stderr, "Memory allocation Error.\n");
-		   exit(MEMORY_ERROR);
-		   } */
+		puts("here");
+		if (num_payloads == max_payloads) {
+			return_code =
+			    resize_array(payloads, num_payloads, max_payloads);
+			max_payloads *= 2;
+			if (return_code == MEMORY_ERROR) {
+				destroy_payloads(*payloads, num_payloads);
+				fclose(fo);
+				fprintf(stderr, "Memory allocation Error.\n");
+				exit(MEMORY_ERROR);
+			}
+		}
 		struct packet_header ph;
 		struct ethernet_header eh;
 		struct ip_header ih;
 		struct udp_header uh;
-		struct zerg_header zh;
+		//struct zerg_header zh;
 		size_t test_len = 0;
+
+		if (num_payloads == 2) {
+			printf("%s\n",
+			       ((struct zerg_status *)(*payloads)[1].
+				zerg_payload)->name);
+		}
 
 		test_len = fread(&ph, 1, sizeof(ph), fo);
 		if (test_len != sizeof(ph)) {
@@ -108,40 +120,43 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 			break;
 		}
 		test_len =
-		    fread(&payloads[num_payloads], 1,
-			  sizeof(zh) - sizeof(zh.zerg_payload), fo);
+		    fread((&(*payloads)[num_payloads]), 1,
+			  sizeof((*payloads)[0]) -
+			  sizeof((*payloads)[0].zerg_payload), fo);
 		if (test_len !=
-		    sizeof(payloads[num_payloads]) -
-		    sizeof(payloads->zerg_payload)) {
+		    sizeof((*payloads)[0]) -
+		    sizeof((*payloads)[0].zerg_payload)) {
 			// Case: EOF reached
 			break;
 		}
 		// TODO: reallocate payloads before loading new packet
 		return_code = 0;
 		unsigned int corrected_len =
-		    shift_24_bit_int(payloads[num_payloads].zerg_len);
+		    shift_24_bit_int((*payloads)[num_payloads].zerg_len);
+		printf("Hex: %x\n", (*payloads)[num_payloads].zerg_len);
+		printf("Decimal: %u\n", corrected_len);
 		corrected_len -= 12;
-		switch (payloads[num_payloads].zerg_packet_type) {
+		switch ((*payloads)[num_payloads].zerg_packet_type) {
 
 		case 0:
 			return_code =
-			    load_message(&payloads[num_payloads], corrected_len,
-					 fo);
+			    load_message(&((*payloads)[num_payloads]),
+					 num_payloads, corrected_len, fo);
 			break;
 		case 1:
 			return_code =
-			    load_status(&payloads[num_payloads], corrected_len,
-					fo);
+			    load_status(&((*payloads)[num_payloads]),
+					num_payloads, corrected_len, fo);
 			break;
 		case 2:
 			return_code =
-			    load_command(&payloads[num_payloads], corrected_len,
-					 fo);
+			    load_command(&((*payloads)[num_payloads]),
+					 num_payloads, corrected_len, fo);
 			break;
 		case 3:
 			return_code =
-			    load_gps(&payloads[num_payloads], corrected_len,
-				     fo);
+			    load_gps(&((*payloads)[num_payloads]), num_payloads,
+				     corrected_len, fo);
 			break;
 		default:
 			--num_payloads;
@@ -175,11 +190,12 @@ int load_packets(struct zerg_header *payloads, size_t num_payloads,
 	return (num_payloads);
 }
 
-int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
+int load_message(struct zerg_header *payloads, size_t index, size_t length,
+		 FILE * fo)
 // Loads the message payload from a given zerg packet.
 {
 	// TODO: Discard packets with letter V
-	char *message = malloc(length + 1);
+	char *message = malloc(length + 1);	// Message + '\0'
 	size_t read_length = fread(message, 1, length, fo);
 	if (read_length != length) {
 		// Case: EOF
@@ -194,7 +210,8 @@ int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
 	return (1);
 }
 
-int load_status(struct zerg_header *payloads, size_t length, FILE * fo)
+int load_status(struct zerg_header *payloads, size_t index, size_t length,
+		FILE * fo)
 // Loads the status payload from a given zerg packet.
 {
 	size_t string_len = length - 12;
@@ -223,7 +240,8 @@ int load_status(struct zerg_header *payloads, size_t length, FILE * fo)
 	return (1);
 }
 
-int load_command(struct zerg_header *payloads, size_t length, FILE * fo)
+int load_command(struct zerg_header *payloads, size_t index, size_t length,
+		 FILE * fo)
 // Loads the command payload from a given zerg packet.
 {
 	struct zerg_command *command_struct =
@@ -239,7 +257,8 @@ int load_command(struct zerg_header *payloads, size_t length, FILE * fo)
 	return (1);
 }
 
-int load_gps(struct zerg_header *payloads, size_t length, FILE * fo)
+int load_gps(struct zerg_header *payloads, size_t index, size_t length,
+	     FILE * fo)
 // Loads the gps payload from a given zerg packet.
 {
 	struct zerg_gps *gps_struct = malloc(sizeof(*gps_struct));
@@ -290,16 +309,16 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 		return;
 	}
 	for (int i = 0; i < num_payloads; ++i) {
-		printf("Payload type: %u\n", payloads[i].zerg_packet_type);	// DEVPRINT
+		//printf("Payload type: %u\n", payloads[i].zerg_packet_type);   // DEVPRINT
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].zerg_payload)->
-			     message);
+			free(((struct zerg_message *)payloads[i].
+			      zerg_payload)->message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].
-			      zerg_payload)->name);
+			free(((struct zerg_status *)payloads[i].zerg_payload)->
+			     name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
@@ -314,13 +333,16 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 	free(payloads);
 }
 
-/*int resize_array(struct zerg_header *payloads, int num_payloads, int max_payloads)
+int resize_array(struct zerg_header **payloads, int num_payloads,
+		 int max_payloads)
 {
-    max_payloads *= 2;
-    struct zerg_header *tmp_payloads = realloc(payloads, (sizeof(*tmp_payloads) * max_payloads));
-    if (!tmp_payloads) {
-        return(MEMORY_ERROR);
-    }
-    payloads = tmp_payloads;
-    return(1);
-}*/
+	max_payloads *= 2;
+	struct zerg_header *tmp_payloads =
+	    realloc(*payloads, (sizeof(*tmp_payloads) * max_payloads));
+	if (!tmp_payloads) {
+		return (MEMORY_ERROR);
+	}
+	*payloads = tmp_payloads;
+	printf("Resized to: %zu\n", (sizeof(*tmp_payloads) * max_payloads));
+	return (1);
+}
