@@ -27,8 +27,12 @@ int load_command(struct zerg_header *payloads, size_t index, size_t length,
 int load_gps(struct zerg_header *payloads, size_t index, size_t length,
 	     FILE * fo);
 void destroy_payloads(struct zerg_header *payloads, int num_payloads);
-int resize_array(struct zerg_header **payloads, int num_payloads,
-		 int max_payloads);
+int resize_array(struct zerg_header **payloads, int max_payloads);
+void print_headers(struct zerg_header *payloads, int num_payloads);
+void print_message(struct zerg_header payload);
+void print_status(struct zerg_header payload);
+void print_command(struct zerg_header payload);
+void print_gps(struct zerg_header payload);
 
 int main(int argc, char *argv[])
 {
@@ -73,8 +77,7 @@ int load_packets(struct zerg_header **payloads, size_t num_payloads,
 		int return_code = 0;
 		puts("here");
 		if (num_payloads == max_payloads) {
-			return_code =
-			    resize_array(payloads, num_payloads, max_payloads);
+			return_code = resize_array(payloads, max_payloads);
 			max_payloads *= 2;
 			if (return_code == MEMORY_ERROR) {
 				destroy_payloads(*payloads, num_payloads);
@@ -92,8 +95,8 @@ int load_packets(struct zerg_header **payloads, size_t num_payloads,
 
 		if (num_payloads == 2) {
 			printf("%s\n",
-			       ((struct zerg_status *)(*payloads)[1].
-				zerg_payload)->name);
+			       ((struct zerg_status
+				 *)(*payloads)[1].zerg_payload)->name);
 		}
 
 		test_len = fread(&ph, 1, sizeof(ph), fo);
@@ -312,13 +315,13 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 		//printf("Payload type: %u\n", payloads[i].zerg_packet_type);   // DEVPRINT
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].
-			      zerg_payload)->message);
+			free(((struct zerg_message *)payloads[i].zerg_payload)->
+			     message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].zerg_payload)->
-			     name);
+			free(((struct zerg_status *)payloads[i].
+			      zerg_payload)->name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
@@ -333,8 +336,7 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 	free(payloads);
 }
 
-int resize_array(struct zerg_header **payloads, int num_payloads,
-		 int max_payloads)
+int resize_array(struct zerg_header **payloads, int max_payloads)
 {
 	max_payloads *= 2;
 	struct zerg_header *tmp_payloads =
@@ -345,4 +347,52 @@ int resize_array(struct zerg_header **payloads, int num_payloads,
 	*payloads = tmp_payloads;
 	printf("Resized to: %zu\n", (sizeof(*tmp_payloads) * max_payloads));
 	return (1);
+}
+
+void print_headers(struct zerg_header *payloads, int num_payloads)
+{
+	if (!payloads) {
+		return;
+	}
+	for (int i = 0; i < num_payloads; ++i) {
+		switch (payloads[i].zerg_packet_type) {
+		case 0:
+			// Print message
+			break;
+		case 1:
+			// Print status
+			break;
+		case 2:
+			// Print command
+			break;
+		case 3:
+			// Print GPS
+			break;
+		}
+	}
+	return;
+}
+
+void print_message(struct zerg_header payload)
+{
+
+	return;
+}
+
+void print_status(struct zerg_header payload)
+{
+
+	return;
+}
+
+void print_command(struct zerg_header payload)
+{
+
+	return;
+}
+
+void print_gps(struct zerg_header payload)
+{
+
+	return;
 }
