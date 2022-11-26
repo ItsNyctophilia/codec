@@ -18,6 +18,7 @@ int load_packets(struct zerg_header **payloads, size_t num_packets,
 		 size_t max_packets, FILE * fo);
 int shift_24_bit_int(unsigned int num);
 float reverse_float(const float num);
+double reverse_double(const double num);
 int load_message(struct zerg_header *payloads, size_t index, size_t length,
 		 FILE * fo);
 int load_status(struct zerg_header *payloads, size_t index, size_t length,
@@ -61,6 +62,7 @@ int main(int argc, char *argv[])
 	// as well as endianness
 
 	int num_payloads = load_packets(&payloads, 0, DEFAULT_PACKET_NUM, fo);
+	print_headers(payloads, num_payloads);
 
 	fclose(fo);
 	destroy_payloads(payloads, num_payloads);
@@ -75,7 +77,6 @@ int load_packets(struct zerg_header **payloads, size_t num_payloads,
 {
 	for (;;) {
 		int return_code = 0;
-		puts("here");
 		if (num_payloads == max_payloads) {
 			return_code = resize_array(payloads, max_payloads);
 			max_payloads *= 2;
@@ -92,12 +93,6 @@ int load_packets(struct zerg_header **payloads, size_t num_payloads,
 		struct udp_header uh;
 		//struct zerg_header zh;
 		size_t test_len = 0;
-
-		if (num_payloads == 2) {
-			printf("%s\n",
-			       ((struct zerg_status
-				 *)(*payloads)[1].zerg_payload)->name);
-		}
 
 		test_len = fread(&ph, 1, sizeof(ph), fo);
 		if (test_len != sizeof(ph)) {
@@ -136,8 +131,6 @@ int load_packets(struct zerg_header **payloads, size_t num_payloads,
 		return_code = 0;
 		unsigned int corrected_len =
 		    shift_24_bit_int((*payloads)[num_payloads].zerg_len);
-		printf("Hex: %x\n", (*payloads)[num_payloads].zerg_len);
-		printf("Decimal: %u\n", corrected_len);
 		corrected_len -= 12;
 		switch ((*payloads)[num_payloads].zerg_packet_type) {
 
@@ -304,6 +297,26 @@ float reverse_float(const float num)
 	return (ret_val);
 }
 
+double reverse_double(const double num)
+// Reverses the byte order of the passed double. Can probably
+// be merged with reverse_float later.
+{
+	double ret_val;
+	char *double_to_convert = (char *)&num;
+	char *return_double = (char *)&ret_val;
+
+	return_double[0] = double_to_convert[7];
+	return_double[1] = double_to_convert[6];
+	return_double[2] = double_to_convert[5];
+	return_double[3] = double_to_convert[4];
+	return_double[4] = double_to_convert[3];
+	return_double[5] = double_to_convert[2];
+	return_double[6] = double_to_convert[1];
+	return_double[7] = double_to_convert[0];
+
+	return (ret_val);
+}
+
 void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 // Destroys the payloads structarray at various stages of it being
 // built and filled out. Syntax taken from Liam Echlin in array.c.
@@ -315,13 +328,13 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 		//printf("Payload type: %u\n", payloads[i].zerg_packet_type);   // DEVPRINT
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].zerg_payload)->
-			     message);
+			free(((struct zerg_message *)payloads[i].
+			      zerg_payload)->message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].
-			      zerg_payload)->name);
+			free(((struct zerg_status *)payloads[i].zerg_payload)->
+			     name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
@@ -355,19 +368,30 @@ void print_headers(struct zerg_header *payloads, int num_payloads)
 		return;
 	}
 	for (int i = 0; i < num_payloads; ++i) {
+		printf("Version: %u\n"
+		       "Sequence: %u\n"
+		       "From: %u\n"
+		       "To: %u\n",
+		       payloads[i].zerg_version,
+		       ntohl(payloads[i].zerg_sequence),
+		       ntohs(payloads[i].zerg_src),
+		       ntohs(payloads[i].zerg_dst));
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			// Print message
+			print_message(payloads[i]);
 			break;
 		case 1:
-			// Print status
+			print_status(payloads[i]);
 			break;
 		case 2:
-			// Print command
+			print_command(payloads[i]);
 			break;
 		case 3:
-			// Print GPS
+			print_gps(payloads[i]);
 			break;
+		}
+		if (i + 1 != num_payloads) {
+			putchar('\n');
 		}
 	}
 	return;
@@ -375,24 +399,164 @@ void print_headers(struct zerg_header *payloads, int num_payloads)
 
 void print_message(struct zerg_header payload)
 {
-
+	printf("Message: %s\n",
+	       ((struct zerg_message *)payload.zerg_payload)->message);
 	return;
 }
 
 void print_status(struct zerg_header payload)
 {
-
+	unsigned int max_hp =
+	    shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
+			     max_hp);
+	int hp =
+	    shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
+			     current_hp);
+	unsigned int armor =
+	    ((struct zerg_status *)payload.zerg_payload)->armor;
+	unsigned int type = ((struct zerg_status *)payload.zerg_payload)->type;
+	float speed =
+	    reverse_float(((struct zerg_status *)payload.zerg_payload)->
+			  max_speed);
+	printf("Max Hit Points: %u\n" "Current Hit Points: %d\n" "Armor: %u\n"
+	       "Type: ", max_hp, hp, armor);
+	switch (type) {
+	case 0:
+		puts("Overmind");
+		break;
+	case 1:
+		puts("Larva");
+		break;
+	case 2:
+		puts("Cerebrate");
+		break;
+	case 3:
+		puts("Overlord");
+		break;
+	case 4:
+		puts("Queen");
+		break;
+	case 5:
+		puts("Drone");
+		break;
+	case 6:
+		puts("Zergling");
+		break;
+	case 7:
+		puts("Lurker");
+		break;
+	case 8:
+		puts("Broodling");
+		break;
+	case 9:
+		puts("Hydralisk");
+		break;
+	case 10:
+		puts("Guardian");
+		break;
+	case 11:
+		puts("Scourge");
+		break;
+	case 12:
+		puts("Ultralisk");
+		break;
+	case 13:
+		puts("Mutalisk");
+		break;
+	case 14:
+		puts("Defiler");
+		break;
+	case 15:
+		puts("Devourer");
+	}
+	printf("Max Speed: %f\n", speed);
+	printf("Name: %s\n",
+	       ((struct zerg_status *)payload.zerg_payload)->name);
 	return;
 }
 
 void print_command(struct zerg_header payload)
 {
 
+	unsigned int command =
+	    ntohs(((struct zerg_command *)payload.zerg_payload)->command);
+	printf("Command: ");
+	switch (command) {
+	case 0:
+		puts("GET_STATUS");
+		break;
+	case 1:
+		{
+			float bearing =
+			    reverse_float((((struct zerg_command *)payload.
+					    zerg_payload)->parameter_2));
+			unsigned int distance =
+			    ntohs((((struct zerg_command *)payload.
+				    zerg_payload)->parameter_1));
+			puts("GOTO");
+			printf("Bearing: %f" "Distance: %u", bearing, distance);
+			break;
+		}
+	case 2:
+		puts("GET_GPS");
+		break;
+	case 4:
+		puts("RETURN");
+		break;
+	case 5:
+		{
+			unsigned int action =
+			    ((struct zerg_command *)payload.zerg_payload)->
+			    parameter_1;
+			int group =
+			    ntohl(((struct zerg_command *)payload.
+				   zerg_payload)->parameter_2);
+			puts("SET_GROUP");
+			switch (action) {
+			case 0:
+				puts("Action: Remove from");
+				break;
+			default:
+				puts("Action: Add to");
+				break;
+			}
+			printf("Group: %d\n", group);
+			break;
+		}
+	case 6:
+		puts("STOP");
+		break;
+	case 7:
+		{
+			unsigned int sequence =
+			    ntohl(((struct zerg_command *)payload.
+				   zerg_payload)->parameter_2);
+			puts("REPEAT");
+			printf("Sequence: %u", sequence);
+			break;
+		}
+	}
 	return;
 }
 
 void print_gps(struct zerg_header payload)
 {
-
+	double longitude =
+	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->
+			   longitude);
+	double latitude =
+	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->latitude);
+	float altitude =
+	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->altitude);
+	float bearing =
+	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->bearing);
+	float speed =
+	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->speed);
+	float accuracy =
+	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->accuracy);
+	printf("Longitude: %f degrees\n" "Latitude: %f degrees\n"
+	       "Altitude: %f fathoms\n" "Bearing: %f degrees\n"
+	       "Speed: %f m/s\n" "Accuracy: %f\n", longitude, latitude,
+	       altitude, bearing, speed, accuracy);
 	return;
 }
