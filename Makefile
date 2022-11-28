@@ -3,7 +3,7 @@ CFLAGS += -Wall -Wextra -Wpedantic -Waggregate-return -Wwrite-strings -Wvla -Wfl
 
 encode: encode.o lib/packet_fields.o
 
-decode: decode.o lib/packet_fields.o
+decode: decode.o lib/packet_fields.o -lm
 
 .PHONY: both
 both: encode
