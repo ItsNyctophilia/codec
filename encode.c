@@ -19,17 +19,19 @@ static struct {
 } options = { true };
 
 void generate_file_header(bool little_endian, struct pcap_header *ph);
-int parse_packet_contents(bool little_endian, FILE * input_fo,
-			  FILE * output_fo);
+void parse_packet_contents(bool little_endian, FILE * input_fo,
+			   FILE * output_fo);
 int parse_message(struct zerg_header *zh, FILE * input_fo);
 void set_static_headers(struct ethernet_header *eh, struct ip_header *ih,
 			struct udp_header *uh);
 void set_length_fields(bool little_endian, const uint16_t len,
 		       struct packet_header *ph, struct ip_header *ih,
 		       struct udp_header *uh, struct zerg_header *zh);
+void write_headers(bool *file_header_present, bool little_endian,
+		   struct packet_header *ph, struct ethernet_header *eh,
+		   struct ip_header *ih, struct udp_header *uh,
+		   struct zerg_header *zh, FILE * output_fo);
 int skip_to_next_packet(FILE * input_fo);
-
-bool file_header_present = false;
 
 int main(int argc, char *argv[])
 {
@@ -69,23 +71,17 @@ int main(int argc, char *argv[])
 		perror(" \b");
 		return (FILE_ERROR);
 	}
-	// TODO: While loop that re-defines the packet fields each loop and
-	// only writes to file if reaches the end without continue
-
-	//do {
-	//      int exit_flag = false;
-	int exit_flag =
-	    parse_packet_contents(options.little_endian, input_fo, output_fo);
-
-	//} while (exit_flag = false);
+	parse_packet_contents(options.little_endian, input_fo, output_fo);
 
 	fclose(input_fo);
 	fclose(output_fo);
 	return (0);
 }
 
-int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
+void parse_packet_contents(bool little_endian, FILE * input_fo,
+			   FILE * output_fo)
 {
+	bool file_header_present = false;
 	char *line_buf = NULL;
 	size_t buf_size = 0;
 	int eof_flag = 0;
@@ -105,18 +101,34 @@ int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
 		}
 		char *word = strtok(line_buf, ":");
 		if (strcmp(word, "Version") != 0) {
-			fprintf(stderr, "Expected \"Version:\"; received %s",
+			fprintf(stderr,
+				"Expected \"Version:\"; received \"%s\"\n",
 				word);
-			skip_to_next_packet(input_fo);
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
+
 		}
 		word = strtok(NULL, " \n");
 		char *err = '\0';
 		zh.zerg_version = strtol(word, &err, 10);
 		if (*err) {
-			fprintf(stderr, "Expected version number; received %s",
+			fprintf(stderr,
+				"Expected version number; received \"%s\"\n",
 				word);
-			skip_to_next_packet(input_fo);
-			continue;
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
@@ -125,17 +137,32 @@ int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "Sequence") != 0) {
-			printf("word: %s", word);
-			skip_to_next_packet(input_fo);
-			continue;
+			fprintf(stderr,
+				"Expected \"Sequence:\"; received \"%s\"\n",
+				word);
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 		word = strtok(NULL, " \n");
 		zh.zerg_sequence = htonl(strtol(word, &err, 10));
 		if (*err) {
-			fprintf(stderr, "Expected sequence number; received %s",
+			fprintf(stderr,
+				"Expected sequence number; received %s\n",
 				word);
-			skip_to_next_packet(input_fo);
-			continue;
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
@@ -144,17 +171,29 @@ int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "From") != 0) {
-			printf("word: %s", word);
-			skip_to_next_packet(input_fo);
-			continue;
+			printf("Expected \"From:\"; received \"%s\"", word);
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 		word = strtok(NULL, " \n");
 		zh.zerg_src = htons(strtol(word, &err, 10));
 		if (*err) {
-			fprintf(stderr, "Expected source ID; received %s",
+			fprintf(stderr, "Expected source ID; received \"%s\"\n",
 				word);
-			skip_to_next_packet(input_fo);
-			continue;
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
@@ -163,16 +202,31 @@ int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "To") != 0) {
-			printf("word: %s", word);
-			skip_to_next_packet(input_fo);
+			fprintf(stderr, "Expected \"To:\"; received %s\n",
+				word);
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 		word = strtok(NULL, " \n");
 		zh.zerg_dst = htons(strtol(word, &err, 10));
 		if (*err) {
-			fprintf(stderr, "Expected destination ID; received %s",
+			fprintf(stderr,
+				"Expected destination ID; received \"%s\"\n",
 				word);
-			skip_to_next_packet(input_fo);
-			continue;
+			if ((skip_to_next_packet(input_fo))) {
+				continue;
+			} else {
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
 		}
 
 		unsigned int offset = ftell(input_fo);
@@ -185,27 +239,18 @@ int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
 		if (strcmp(word, "Message") == 0) {
 			zh.zerg_packet_type = 0;
 			parse_message(&zh, input_fo);
-			// The +1 skips the leading space which is an artifact of the
-			// decode output formatting
 			char *message =
-			    ((struct zerg_message *)zh.zerg_payload)->message +
-			    1;
+			    ((struct zerg_message *)zh.zerg_payload)->message;
+			if (message[0] == ' ') {
+				// Remove leading space if present
+				message = message + 1;
+			}
 			uint16_t len = strlen(message);
 			set_length_fields(little_endian,
 					  sizeof(zh) - sizeof(zh.zerg_payload) +
 					  len, &ph, &ih, &uh, &zh);
-			if (!file_header_present) {
-				struct pcap_header fh;
-				generate_file_header(little_endian, &fh);
-				file_header_present = true;
-				fwrite(&fh, sizeof(fh), 1, output_fo);
-			}
-			fwrite(&ph, sizeof(ph), 1, output_fo);
-			fwrite(&eh, sizeof(eh), 1, output_fo);
-			fwrite(&ih, sizeof(ih), 1, output_fo);
-			fwrite(&uh, sizeof(uh), 1, output_fo);
-			fwrite(&zh, sizeof(zh) - sizeof(zh.zerg_payload), 1,
-			       output_fo);
+			write_headers(&file_header_present, little_endian, &ph,
+				      &eh, &ih, &uh, &zh, output_fo);
 			fwrite(message, len, 1, output_fo);
 			free(((struct zerg_message *)zh.zerg_payload)->message);
 			free(zh.zerg_payload);
@@ -228,7 +273,25 @@ int parse_packet_contents(bool little_endian, FILE * input_fo, FILE * output_fo)
 	if (line_buf) {
 		free(line_buf);
 	}
-	return (1);
+	return;
+}
+
+void write_headers(bool *file_header_present, bool little_endian,
+		   struct packet_header *ph, struct ethernet_header *eh,
+		   struct ip_header *ih, struct udp_header *uh,
+		   struct zerg_header *zh, FILE * output_fo)
+{
+	if (!*file_header_present) {
+		struct pcap_header fh;
+		generate_file_header(little_endian, &fh);
+		*file_header_present = true;
+		fwrite(&fh, sizeof(fh), 1, output_fo);
+	}
+	fwrite(ph, sizeof(*ph), 1, output_fo);
+	fwrite(eh, sizeof(*eh), 1, output_fo);
+	fwrite(ih, sizeof(*ih), 1, output_fo);
+	fwrite(uh, sizeof(*uh), 1, output_fo);
+	fwrite(zh, sizeof(*zh) - sizeof(zh->zerg_payload), 1, output_fo);
 }
 
 void set_static_headers(struct ethernet_header *eh, struct ip_header *ih,
@@ -248,7 +311,8 @@ void set_length_fields(bool little_endian, const uint16_t len,
 		       struct packet_header *ph, struct ip_header *ih,
 		       struct udp_header *uh, struct zerg_header *zh)
 {
-	zh->zerg_len = htons(len) << 8;
+	zh->zerg_len = htons(len) << 8;	// Bit shifting 16 bit int to fit
+	// leftmost part of the 24 bit field.
 	uh->udp_len = htons(len + sizeof(struct udp_header));
 	ih->ip_packet_length =
 	    htons(len + sizeof(struct udp_header) + sizeof(struct ip_header));
@@ -321,7 +385,7 @@ int skip_to_next_packet(FILE * input_fo)
 	return (0);
 }
 
-void generate_file_header(bool little_endian, struct pcap_header *ph)
+void generate_file_header(bool little_endian, struct pcap_header *fh)
 {
 	uint32_t magic_number = 0xA1B2C3D4;	// .pcap magic number
 	uint16_t major_version = 2;
@@ -329,19 +393,19 @@ void generate_file_header(bool little_endian, struct pcap_header *ph)
 	uint32_t link_type = 1;	// Ethernet
 
 	if (little_endian) {
-		ph->magic_number = magic_number;
-		ph->major_version = major_version;
-		ph->minor_version = minor_version;
-		ph->link_layer_type = link_type;
+		fh->magic_number = magic_number;
+		fh->major_version = major_version;
+		fh->minor_version = minor_version;
+		fh->link_layer_type = link_type;
 	} else {
-		ph->magic_number = htonl(magic_number);
-		ph->major_version = htons(major_version);
-		ph->minor_version = htons(minor_version);
-		ph->link_layer_type = htonl(link_type);
+		fh->magic_number = htonl(magic_number);
+		fh->major_version = htons(major_version);
+		fh->minor_version = htons(minor_version);
+		fh->link_layer_type = htonl(link_type);
 	}
-	ph->gmt_offset = 0;
-	ph->accuracy_delta = 0;
-	ph->max_capture_len = 0;
+	fh->gmt_offset = 0;
+	fh->accuracy_delta = 0;
+	fh->max_capture_len = 0;
 
 	return;
 }
