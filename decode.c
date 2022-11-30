@@ -598,7 +598,7 @@ void print_status(struct zerg_header payload)
 	case 15:
 		puts("Devourer");
 	}
-	printf("Max Speed: %f\n", speed);
+	printf("Max Speed: %g\n", speed);
 	printf("Name: %s\n",
 	       ((struct zerg_status *)payload.zerg_payload)->name);
 	return;
@@ -623,7 +623,7 @@ void print_command(struct zerg_header payload)
 							payload.zerg_payload)->
 						       parameter_1));
 			puts("GOTO");
-			printf("Bearing: %f degrees\n" "Distance: %u m\n",
+			printf("Bearing: %g degrees\n" "Distance: %u m\n",
 			       bearing, distance);
 			break;
 		}

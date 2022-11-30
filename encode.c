@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
 		perror(" \b");
 		return (FILE_ERROR);
 	}
-	FILE *output_fo = fopen(argv[1], "w");
+	FILE *output_fo = fopen(argv[1], "wb");
 	if (!output_fo) {
 		fprintf(stderr, "%s could not be opened", argv[1]);
 		perror(" \b");
@@ -287,35 +287,46 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 		if (strcmp(word, "Message") == 0) {
 			// Case: Message payload
 			zh.zerg_packet_type = 0;
-			if ((!parse_message(&zh, input_fo))) {
-				if ((skip_to_next_packet(input_fo))) {
-					continue;
-				} else {
-					if (line_buf) {
-						free(line_buf);
-					}
-					return;
+			uint16_t len;
+			char *message;
+			if ((parse_message(&zh, input_fo)) == -2) {
+				// Case: Empty message
+				len = 0;
+			} else {
+				message =
+				    ((struct zerg_message *)zh.zerg_payload)->
+				    message;
+				if (message[0] == ' ') {
+					// Remove leading space if present
+					message = message + 1;
 				}
+				len = strlen(message);
 			}
-			char *message =
-			    ((struct zerg_message *)zh.zerg_payload)->message;
-			if (message[0] == ' ') {
-				// Remove leading space if present
-				message = message + 1;
-			}
-			uint16_t len = strlen(message);
 			set_length_fields(little_endian,
 					  sizeof(zh) - sizeof(zh.zerg_payload) +
 					  len, &ph, &ih, &uh, &zh);
 			write_headers(&file_header_present, little_endian, &ph,
 				      &eh, &ih, &uh, &zh, output_fo);
 			fwrite(message, len, 1, output_fo);
+			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				int padding_difference =
+				    60 - (ntohs(ih.ip_packet_length) + 14);
+				for (int i = 0; i < padding_difference; ++i) {
+					char null_buffer[] = "\0";
+					fwrite(null_buffer, 1, 1, output_fo);
+				}
+			}
 			free(((struct zerg_message *)zh.zerg_payload)->message);
 			free(zh.zerg_payload);
 		} else if (strcmp(word, "Max Hit Points") == 0) {
 			// Case: Status payload
 			zh.zerg_packet_type = 1;
-			if ((!parse_status(&zh, input_fo))) {
+			uint16_t len;
+			char *name;
+			int return_value;
+			return_value = parse_status(&zh, input_fo);
+			if (return_value == 0) {
+				// Case: Invalid packet
 				if ((skip_to_next_packet(input_fo))) {
 					continue;
 				} else {
@@ -324,16 +335,27 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 					}
 					return;
 				}
+			} else if (return_value == -1) {
+				// Case: Unexpected EOF
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			} else if (return_value == -2) {
+				// Case: Empty message
+				len = 0;
+			} else {
+				name =
+				    ((struct zerg_status *)zh.zerg_payload)->
+				    name;
+				if (name[0] == ' ') {
+					name = name + 1;
+				}
+				len =
+				    strlen(name) + sizeof(struct zerg_status) -
+				    sizeof((struct zerg_status *)
+					   zh.zerg_payload)->name;
 			}
-			char *name =
-			    ((struct zerg_status *)zh.zerg_payload)->name;
-			if (name[0] == ' ') {
-				name = name + 1;
-			}
-			uint16_t len =
-			    strlen(name) + sizeof(struct zerg_status) -
-			    sizeof((struct zerg_status *) zh.
-				   zerg_payload)->name;
 			set_length_fields(little_endian,
 					  sizeof(zh) - sizeof(zh.zerg_payload) +
 					  len, &ph, &ih, &uh, &zh);
@@ -342,13 +364,23 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			fwrite((struct zerg_status *)zh.zerg_payload,
 			       len - strlen(name), 1, output_fo);
 			fwrite(name, strlen(name), 1, output_fo);
+			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				int padding_difference =
+				    60 - (ntohs(ih.ip_packet_length) + 14);
+				for (int i = 0; i < padding_difference; ++i) {
+					char null_buffer[] = "\0";
+					fwrite(null_buffer, 1, 1, output_fo);
+				}
+			}
 			free(((struct zerg_status *)zh.zerg_payload)->name);
 			free(zh.zerg_payload);
 		} else if (strcmp(word, "Command") == 0) {
 			// Case: Command payload
 			zh.zerg_packet_type = 2;
-			if ((!parse_command(&zh, input_fo))) {
+			int return_value = parse_command(&zh, input_fo);
+			if (return_value == 0) {
 				if ((skip_to_next_packet(input_fo))) {
+					// Case: Invalid packet
 					continue;
 				} else {
 					if (line_buf) {
@@ -356,11 +388,17 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 					}
 					return;
 				}
+			} else if (return_value == -1) {
+				// Case: Unexpected EOF
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
 			}
 			uint16_t len;
 			if (ntohs
-			    (((struct zerg_command *)zh.zerg_payload)->
-			     command) % 2 == 0) {
+			    (((struct zerg_command *)zh.
+			      zerg_payload)->command) % 2 == 0) {
 				len = 2;	// Size of command payload for even commands
 			} else {
 				len = 8;	// Size of command payload for odd commands
@@ -372,6 +410,14 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				      &eh, &ih, &uh, &zh, output_fo);
 			fwrite((struct zerg_command *)zh.zerg_payload, len, 1,
 			       output_fo);
+			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				int padding_difference =
+				    60 - (ntohs(ih.ip_packet_length) + 14);
+				for (int i = 0; i < padding_difference; ++i) {
+					char null_buffer[] = "\0";
+					fwrite(null_buffer, 1, 1, output_fo);
+				}
+			}
 			free(zh.zerg_payload);
 		} else if (strcmp(word, "Latitude") == 0) {
 			puts("GPS payload input_found.");
@@ -454,19 +500,22 @@ int parse_message(struct zerg_header *zh, FILE * input_fo)
 	size_t buf_size = 0;
 	char *word;
 
+	struct zerg_message *zm = malloc(sizeof(*zm));
+
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
 	word = strtok(NULL, "\n");
 	if (!word) {
-		fprintf(stderr, "Missing Message\n");
+		// Case: empty message
+		zh->zerg_payload = zm;
+		zm->message = NULL;
 		free(line_buf);
-		return (0);
+		return (-2);
 	}
 	// TODO: Error handle malloc calls
 	char *message = malloc(strlen(word) + 1);
 	strncpy(message, word, strlen(word));
 	message[strlen(word)] = '\0';
-	struct zerg_message *zm = malloc(sizeof(*zm));
 
 	zm->message = message;
 	zh->zerg_payload = zm;
@@ -519,12 +568,14 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 			free(line_buf);
 		}
 		free(zs);
+		fprintf(stderr,
+			"Unexpected EOF; expected \"Current Hit Points:\"\n");
 		return (-1);
 	}
 	word = strtok(line_buf, ":");
 	if (strcmp(word, "Current Hit Points") != 0) {
 		fprintf(stderr,
-			"Expected \"Current Hit Points:\"; received %s\n",
+			"Expected \"Current Hit Points:\"; received \"%s\"\n",
 			word);
 		free(line_buf);
 		free(zs);
@@ -553,11 +604,12 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 			free(line_buf);
 		}
 		free(zs);
+		fprintf(stderr, "Unexpected EOF; expected \"Armor:\"\n");
 		return (-1);
 	}
 	word = strtok(line_buf, ":");
 	if (strcmp(word, "Armor") != 0) {
-		fprintf(stderr, "Expected \"Armor:\"; received %s\n", word);
+		fprintf(stderr, "Expected \"Armor:\"; received \"%s\"\n", word);
 		free(line_buf);
 		free(zs);
 		return (0);
@@ -584,11 +636,12 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 			free(line_buf);
 		}
 		free(zs);
+		fprintf(stderr, "Unexpected EOF; expected \"Type:\"\n");
 		return (-1);
 	}
 	word = strtok(line_buf, ":");
 	if (strcmp(word, "Type") != 0) {
-		fprintf(stderr, "Expected \"Type:\"; received %s\n", word);
+		fprintf(stderr, "Expected \"Type:\"; received \"%s\"\n", word);
 		free(line_buf);
 		free(zs);
 		return (0);
@@ -633,7 +686,7 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	} else if (strcmp(word, "Devourer") == 0) {
 		zs->type = 15;
 	} else {
-		fprintf(stderr, "Expected Zerg Type; received %s\n", word);
+		fprintf(stderr, "Expected Zerg Type; received \"%s\"\n", word);
 		free(line_buf);
 		free(zs);
 		return (0);
@@ -645,11 +698,13 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 			free(line_buf);
 		}
 		free(zs);
+		fprintf(stderr, "Unexpected EOF; expected \"Max Speed:\"\n");
 		return (-1);
 	}
 	word = strtok(line_buf, ":");
 	if (strcmp(word, "Max Speed") != 0) {
-		fprintf(stderr, "Expected \"Max Speed:\"; received %s\n", word);
+		fprintf(stderr, "Expected \"Max Speed:\"; received \"%s\"\n",
+			word);
 		free(line_buf);
 		free(zs);
 		return (0);
@@ -673,17 +728,19 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
 	if (strcmp(word, "Name") != 0) {
-		fprintf(stderr, "Expected \"Name:\"; received %s\n", word);
+		fprintf(stderr, "Expected \"Name:\"; received \"%s\"\n", word);
 		free(line_buf);
 		free(zs);
 		return (0);
 	}
 	word = strtok(NULL, "\n");
 	if (!word) {
-		fprintf(stderr, "Missing Zerg Name\n");
+		// Case: empty message
+		zh->zerg_payload = zs;
+		zs->name = NULL;
 		free(line_buf);
 		free(zs);
-		return (0);
+		return (-2);
 	}
 	// TODO: Error handle malloc calls
 	char *name = malloc(strlen(word) + 1);
@@ -739,7 +796,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 		command = 7;
 		zc->command = htons(command);
 	} else {
-		fprintf(stderr, "Expected Command; received %s", word);
+		fprintf(stderr, "Expected Command; received \"%s\"", word);
 		free(line_buf);
 		return (0);
 	}
@@ -757,11 +814,14 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 				free(line_buf);
 			}
 			free(zc);
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Bearing:\"\n");
 			return (-1);
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "Bearing") != 0) {
-			fprintf(stderr, "Expected \"Bearing:\"; received %s\n",
+			fprintf(stderr,
+				"Expected \"Bearing:\"; received \"%s\"\n",
 				word);
 			free(line_buf);
 			free(zc);
@@ -791,11 +851,14 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 				free(line_buf);
 			}
 			free(zc);
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Distance:\"\n");
 			return (-1);
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "Distance") != 0) {
-			fprintf(stderr, "Expected \"Distance:\"; received %s\n",
+			fprintf(stderr,
+				"Expected \"Distance:\"; received \"%s\"\n",
 				word);
 			free(line_buf);
 			free(zc);
@@ -831,11 +894,14 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 				free(line_buf);
 			}
 			free(zc);
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Action:\"\n");
 			return (-1);
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "Action") != 0) {
-			fprintf(stderr, "Expected \"Action:\"; received %s\n",
+			fprintf(stderr,
+				"Expected \"Action:\"; received \"%s\"\n",
 				word);
 			free(line_buf);
 			free(zc);
@@ -858,7 +924,8 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			zc->parameter_1 = 0;
 		} else {
 			fprintf(stderr,
-				"Expected Action to take; received %s\n", word);
+				"Expected Action to take; received \"%s\"\n",
+				word);
 			free(line_buf);
 			free(zc);
 			return (0);
@@ -870,12 +937,14 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 				free(line_buf);
 			}
 			free(zc);
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Group:\"\n");
 			return (-1);
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "Group") != 0) {
-			fprintf(stderr, "Expected \"Group:\"; received %s\n",
-				word);
+			fprintf(stderr,
+				"Expected \"Group:\"; received \"%s\"\n", word);
 			free(line_buf);
 			free(zc);
 			return (0);
@@ -909,11 +978,14 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 				free(line_buf);
 			}
 			free(zc);
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Sequence:\"\n");
 			return (-1);
 		}
 		word = strtok(line_buf, ":");
 		if (strcmp(word, "Sequence") != 0) {
-			fprintf(stderr, "Expected \"Sequence:\"; received %s\n",
+			fprintf(stderr,
+				"Expected \"Sequence:\"; received \"%s\"\n",
 				word);
 			free(line_buf);
 			free(zc);
