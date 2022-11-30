@@ -57,7 +57,7 @@ struct __attribute__((__packed__)) zerg_message {
 };
 
 struct __attribute__((__packed__)) zerg_status {
-	long current_hp:24;
+	int current_hp:24;
 	unsigned int armor:8;
 	unsigned int max_hp:24;
 	unsigned int type:8;
