@@ -23,6 +23,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			   FILE * output_fo);
 int parse_message(struct zerg_header *zh, FILE * input_fo);
 int parse_status(struct zerg_header *zh, FILE * input_fo);
+int parse_command(struct zerg_header *zh, FILE * input_fo);
 void set_static_headers(struct ethernet_header *eh, struct ip_header *ih,
 			struct udp_header *uh);
 void set_length_fields(bool little_endian, const uint16_t len,
@@ -331,8 +332,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			}
 			uint16_t len =
 			    strlen(name) + sizeof(struct zerg_status) -
-			    sizeof((struct zerg_status *) zh.zerg_payload)->
-			    name;
+			    sizeof((struct zerg_status *) zh.
+				   zerg_payload)->name;
 			set_length_fields(little_endian,
 					  sizeof(zh) - sizeof(zh.zerg_payload) +
 					  len, &ph, &ih, &uh, &zh);
@@ -344,7 +345,34 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			free(((struct zerg_status *)zh.zerg_payload)->name);
 			free(zh.zerg_payload);
 		} else if (strcmp(word, "Command") == 0) {
-			puts("Command payload input_found.");
+			// Case: Command payload
+			zh.zerg_packet_type = 2;
+			if ((!parse_command(&zh, input_fo))) {
+				if ((skip_to_next_packet(input_fo))) {
+					continue;
+				} else {
+					if (line_buf) {
+						free(line_buf);
+					}
+					return;
+				}
+			}
+			uint16_t len;
+			if (ntohs
+			    (((struct zerg_command *)zh.zerg_payload)->
+			     command) % 2 == 0) {
+				len = 2;	// Size of command payload for even commands
+			} else {
+				len = 8;	// Size of command payload for odd commands
+			}
+			set_length_fields(little_endian,
+					  sizeof(zh) - sizeof(zh.zerg_payload) +
+					  len, &ph, &ih, &uh, &zh);
+			write_headers(&file_header_present, little_endian, &ph,
+				      &eh, &ih, &uh, &zh, output_fo);
+			fwrite((struct zerg_command *)zh.zerg_payload, len, 1,
+			       output_fo);
+			free(zh.zerg_payload);
 		} else if (strcmp(word, "Latitude") == 0) {
 			puts("GPS payload input_found.");
 		} else {
@@ -454,7 +482,7 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	int eof_flag = 0;
 	char *line_buf = NULL;
 	size_t buf_size = 0;
-	char *word = '\0';
+	char *word;
 	char *err = '\0';
 
 	struct zerg_status *zs = malloc(sizeof(*zs));
@@ -468,13 +496,6 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 		return (-1);
 	}
 	word = strtok(line_buf, ":");
-	if (strcmp(word, "Max Hit Points") != 0) {
-		fprintf(stderr, "Expected \"Max Hit Points:\"; received %s\n",
-			word);
-		free(line_buf);
-		free(zs);
-		return (0);
-	}
 	word = strtok(NULL, " \n");
 	if (!word) {
 		fprintf(stderr, "Missing Max Hit Points Value\n");
@@ -670,6 +691,256 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	name[strlen(word)] = '\0';
 	zs->name = name;
 	zh->zerg_payload = zs;
+	if (line_buf) {
+		free(line_buf);
+	}
+	return (1);
+}
+
+int parse_command(struct zerg_header *zh, FILE * input_fo)
+{
+	int eof_flag = 0;
+	char *line_buf = NULL;
+	size_t buf_size = 0;
+	char *word;
+	char *err = '\0';
+
+	struct zerg_command *zc = malloc(sizeof(*zc));
+
+	getline(&line_buf, &buf_size, input_fo);
+	word = strtok(line_buf, ":");
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Command\n");
+		free(line_buf);
+		free(zc);
+		return (0);
+	}
+	uint16_t command;
+	if (strcmp(word, "GET_STATUS") == 0) {
+		command = 0;
+		zc->command = htons(command);
+	} else if (strcmp(word, "GOTO") == 0) {
+		command = 1;
+		zc->command = htons(command);
+	} else if (strcmp(word, "GET_GPS") == 0) {
+		command = 2;
+		zc->command = htons(command);
+	} else if (strcmp(word, "RETURN") == 0) {
+		command = 4;
+		zc->command = htons(command);
+	} else if (strcmp(word, "SET_GROUP") == 0) {
+		command = 5;
+		zc->command = htons(command);
+	} else if (strcmp(word, "STOP") == 0) {
+		command = 6;
+		zc->command = htons(command);
+	} else if (strcmp(word, "REPEAT") == 0) {
+		command = 7;
+		zc->command = htons(command);
+	} else {
+		fprintf(stderr, "Expected Command; received %s", word);
+		free(line_buf);
+		return (0);
+	}
+	if (command % 2 == 0) {
+		zh->zerg_payload = zc;
+		if (line_buf) {
+			free(line_buf);
+		}
+		return (1);
+	} else if (command == 1) {
+		// Case: GOTO Payload
+		eof_flag = getline(&line_buf, &buf_size, input_fo);
+		if (eof_flag == -1) {
+			if (line_buf) {
+				free(line_buf);
+			}
+			free(zc);
+			return (-1);
+		}
+		word = strtok(line_buf, ":");
+		if (strcmp(word, "Bearing") != 0) {
+			fprintf(stderr, "Expected \"Bearing:\"; received %s\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		word = strtok(NULL, " \n");
+		if (!word) {
+			fprintf(stderr, "Missing Bearing Value\n");
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		float bearing = reverse_float(strtof(word, &err));
+		zc->parameter_2 = bearing;
+		if (*err) {
+			fprintf(stderr,
+				"Expected Bearing value; received \"%s\"\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+
+		eof_flag = getline(&line_buf, &buf_size, input_fo);
+		if (eof_flag == -1) {
+			if (line_buf) {
+				free(line_buf);
+			}
+			free(zc);
+			return (-1);
+		}
+		word = strtok(line_buf, ":");
+		if (strcmp(word, "Distance") != 0) {
+			fprintf(stderr, "Expected \"Distance:\"; received %s\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		word = strtok(NULL, " \n");
+		if (!word) {
+			fprintf(stderr, "Missing Distance Value\n");
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		zc->parameter_1 = htons(strtol(word, &err, 10));
+		if (*err) {
+			fprintf(stderr,
+				"Expected Distance value; received \"%s\"\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		zh->zerg_payload = zc;
+		if (line_buf) {
+			free(line_buf);
+		}
+		return (1);
+
+	} else if (command == 5) {
+		// Case: SET_GROUP Payload
+		eof_flag = getline(&line_buf, &buf_size, input_fo);
+		if (eof_flag == -1) {
+			if (line_buf) {
+				free(line_buf);
+			}
+			free(zc);
+			return (-1);
+		}
+		word = strtok(line_buf, ":");
+		if (strcmp(word, "Action") != 0) {
+			fprintf(stderr, "Expected \"Action:\"; received %s\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		word = strtok(NULL, "\n");
+		if (word[0] == ' ') {
+			// Remove leading space if present
+			word = word + 1;
+		}
+		if (!word) {
+			fprintf(stderr, "Missing Action\n");
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		if (strcmp(word, "Add to") == 0) {
+			zc->parameter_1 = 1;
+		} else if (strcmp(word, "Remove from") == 0) {
+			zc->parameter_1 = 0;
+		} else {
+			fprintf(stderr,
+				"Expected Action to take; received %s\n", word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+
+		eof_flag = getline(&line_buf, &buf_size, input_fo);
+		if (eof_flag == -1) {
+			if (line_buf) {
+				free(line_buf);
+			}
+			free(zc);
+			return (-1);
+		}
+		word = strtok(line_buf, ":");
+		if (strcmp(word, "Group") != 0) {
+			fprintf(stderr, "Expected \"Group:\"; received %s\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		word = strtok(NULL, " \n");
+		if (!word) {
+			fprintf(stderr, "Missing Group ID\n");
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		zc->parameter_2 = htonl(strtol(word, &err, 10));
+		if (*err) {
+			fprintf(stderr, "Expected Group ID; received \"%s\"\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		if (line_buf) {
+			free(line_buf);
+		}
+		zh->zerg_payload = zc;
+		return (1);
+	} else if (command == 7) {
+		zc->parameter_1 = 0;
+
+		eof_flag = getline(&line_buf, &buf_size, input_fo);
+		if (eof_flag == -1) {
+			if (line_buf) {
+				free(line_buf);
+			}
+			free(zc);
+			return (-1);
+		}
+		word = strtok(line_buf, ":");
+		if (strcmp(word, "Sequence") != 0) {
+			fprintf(stderr, "Expected \"Sequence:\"; received %s\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		word = strtok(NULL, " \n");
+		if (!word) {
+			fprintf(stderr, "Missing Sequence ID\n");
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		zc->parameter_2 = htonl(strtol(word, &err, 10));
+		if (*err) {
+			fprintf(stderr,
+				"Expected Sequence ID; received \"%s\"\n",
+				word);
+			free(line_buf);
+			free(zc);
+			return (0);
+		}
+		if (line_buf) {
+			free(line_buf);
+		}
+		zh->zerg_payload = zc;
+		return (1);
+	}
 	if (line_buf) {
 		free(line_buf);
 	}

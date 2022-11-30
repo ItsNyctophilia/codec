@@ -68,7 +68,7 @@ struct __attribute__((__packed__)) zerg_status {
 struct __attribute__((__packed__)) zerg_command {
 	unsigned int command:16;
 	unsigned int parameter_1:16;
-	unsigned int parameter_2:32;
+	float parameter_2;
 };
 
 struct __attribute__((__packed__)) zerg_gps {
