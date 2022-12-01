@@ -50,7 +50,15 @@ int main(int argc, char *argv[])
 
 	struct pcap_header fh;	// [f]ile [h]eader
 	bool little_endian = true;	// Denotes the endianness of the pcap headers
-	fread(&fh, 1, sizeof(fh), fo);
+	int read_items = fread(&fh, sizeof(fh), 1, fo);
+	if (read_items != 1) {
+		fprintf(stderr,
+			"%s is not of a type that is currently supported\n",
+			argv[1]);
+		fclose(fo);
+		free(payloads);
+		return (SUCCESS);
+	}
 	if (fh.magic_number == 0xA1B2C3D4) {
 		// Case: Packet has same byte order as host (Little Endian)
 		if (fh.major_version != 2 || fh.minor_version != 4) {
@@ -396,13 +404,13 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 	for (int i = 0; i < num_payloads; ++i) {
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].
-			      zerg_payload)->message);
+			free(((struct zerg_message *)payloads[i].zerg_payload)->
+			     message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].zerg_payload)->
-			     name);
+			free(((struct zerg_status *)payloads[i].
+			      zerg_payload)->name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
@@ -475,17 +483,17 @@ void print_message(struct zerg_header payload)
 void print_status(struct zerg_header payload)
 {
 	unsigned int max_hp =
-	    shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
-			     max_hp);
+	    shift_24_bit_int(((struct zerg_status *)payload.
+			      zerg_payload)->max_hp);
 	int hp = 0;
-	hp = shift_24_bit_int(((struct zerg_status *)payload.
-			       zerg_payload)->current_hp);
+	hp = shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
+			      current_hp);
 	unsigned int armor =
 	    ((struct zerg_status *)payload.zerg_payload)->armor;
 	unsigned int type = ((struct zerg_status *)payload.zerg_payload)->type;
 	float speed =
-	    reverse_float(((struct zerg_status *)payload.zerg_payload)->
-			  max_speed);
+	    reverse_float(((struct zerg_status *)payload.
+			   zerg_payload)->max_speed);
 	printf("Max Hit Points: %u\n" "Current Hit Points: %d\n" "Armor: %u\n"
 	       "Type: ", max_hp, hp, armor);
 	switch (type) {
@@ -557,11 +565,11 @@ void print_command(struct zerg_header payload)
 		{
 			float bearing =
 			    reverse_float((float)(((struct zerg_command *)
-						   payload.
-						   zerg_payload)->parameter_2f));
+						   payload.zerg_payload)->
+						  parameter_2f));
 			unsigned int distance = ntohs((((struct zerg_command *)
-							payload.zerg_payload)->
-						       parameter_1));
+							payload.
+							zerg_payload)->parameter_1));
 			puts("GOTO");
 			printf("Bearing: %g degrees\n" "Distance: %u m\n",
 			       bearing, distance);
@@ -576,11 +584,11 @@ void print_command(struct zerg_header payload)
 	case 5:
 		{
 			unsigned int action =
-			    ((struct zerg_command *)payload.zerg_payload)->
-			    parameter_1;
+			    ((struct zerg_command *)payload.
+			     zerg_payload)->parameter_1;
 			int group =
-			    htonl(((struct zerg_command *)payload.
-				   zerg_payload)->parameter_2i);
+			    htonl(((struct zerg_command *)
+				   payload.zerg_payload)->parameter_2i);
 			puts("SET_GROUP");
 			switch (action) {
 			case 0:
@@ -599,8 +607,8 @@ void print_command(struct zerg_header payload)
 	case 7:
 		{
 			unsigned int sequence = ntohl(((struct zerg_command *)
-						       payload.zerg_payload)->
-						      parameter_2u);
+						       payload.
+						       zerg_payload)->parameter_2u);
 			puts("REPEAT");
 			printf("Sequence: %u\n", sequence);
 			break;
@@ -615,8 +623,8 @@ void print_gps(struct zerg_header payload)
 	double minutes = 0;
 	double seconds = 0;
 	double longitude =
-	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->
-			   longitude);
+	    reverse_double(((struct zerg_gps *)payload.
+			    zerg_payload)->longitude);
 	double latitude =
 	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->latitude);
 	float altitude =
@@ -629,15 +637,23 @@ void print_gps(struct zerg_header payload)
 	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->accuracy);
 
 	format_gps_output(latitude, &degrees, &minutes, &seconds);
-	printf("Latitude: %g° %g' %2.2f\" ", degrees, minutes, seconds);
-	if (degrees >= 0) {
+	printf("Latitude: ");
+	if (latitude < 0) {
+		printf("-");
+	}
+	printf("%g° %g' %g\" ", degrees, minutes, seconds);
+	if (latitude >= 0) {
 		puts("N");
 	} else {
 		puts("S");
 	}
 	format_gps_output(longitude, &degrees, &minutes, &seconds);
-	printf("Longitude: %g° %g' %2.2f\" ", degrees, minutes, seconds);
-	if (degrees >= 0) {
+	printf("Longitude: ");
+	if (longitude < 0) {
+		printf("-");
+	}
+	printf("%g° %g' %g\" ", degrees, minutes, seconds);
+	if (longitude >= 0) {
 		puts("E");
 	} else {
 		puts("W");
@@ -655,10 +671,8 @@ void format_gps_output(const double num, double *degrees, double *minutes,
 // converted values after turning the decimal representation of the
 // longitude/latitude field into degrees/minutes/seconds format.
 {
-	double absolute = fabs(num);
-	*degrees = floor(absolute);
-	double minutes_not_truncated = (absolute - *degrees) * 60;
-	*minutes = floor(minutes_not_truncated);
-	*seconds = (minutes_not_truncated - *minutes) * 60;
+	*degrees = floor(fabs(num));
+	*minutes = floor((fabs(num) - *degrees) * 60);
+	*seconds = ((fabs(num)) - *degrees - (*minutes / 60)) * 3600;
 	return;
 }
