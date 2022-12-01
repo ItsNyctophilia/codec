@@ -288,8 +288,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				len = 0;
 			} else {
 				message =
-				    ((struct zerg_message *)zh.
-				     zerg_payload)->message;
+				    ((struct zerg_message *)zh.zerg_payload)->
+				    message;
 				if (message[0] == ' ') {
 					// Remove leading space if present
 					message = message + 1;
@@ -347,8 +347,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				name_len = 0;
 			} else {
 				name =
-				    ((struct zerg_status *)zh.
-				     zerg_payload)->name;
+				    ((struct zerg_status *)zh.zerg_payload)->
+				    name;
 				if (name[0] == ' ') {
 					name = name + 1;
 				}
@@ -401,8 +401,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			}
 			uint16_t len;
 			if (ntohs
-			    (((struct zerg_command *)zh.zerg_payload)->
-			     command) % 2 == 0) {
+			    (((struct zerg_command *)zh.
+			      zerg_payload)->command) % 2 == 0) {
 				len = 2;	// Size of command payload for even commands
 			} else {
 				len = 8;	// Size of command payload for odd commands
@@ -1130,8 +1130,15 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	if (degrees >= 0) {
+		degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	} else {
+		// If number is negative, make minutes and seconds negative
+		degrees =
+		    (degrees + ((-1) * minutes / 60) + ((-1) * seconds / 3600));
+	}
 	zg->latitude = reverse_double(degrees);
+
 	getline(&line_buf, &buf_size, input_fo);
 	if (eof_flag == -1) {
 		if (line_buf) {
@@ -1190,7 +1197,13 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	if (degrees >= 0) {
+		degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	} else {
+		// If number is negative, make minutes and seconds negative
+		degrees =
+		    (degrees + ((-1) * minutes / 60) + ((-1) * seconds / 3600));
+	}
 	zg->longitude = reverse_double(degrees);
 
 	getline(&line_buf, &buf_size, input_fo);
