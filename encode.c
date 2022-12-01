@@ -288,8 +288,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				len = 0;
 			} else {
 				message =
-				    ((struct zerg_message *)zh.
-				     zerg_payload)->message;
+				    ((struct zerg_message *)zh.zerg_payload)->
+				    message;
 				if (message[0] == ' ') {
 					// Remove leading space if present
 					message = message + 1;
@@ -342,13 +342,13 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				// Case: Empty message
 				len =
 				    sizeof(struct zerg_status) -
-				    sizeof((struct zerg_status *) zh.
-					   zerg_payload)->name;;
+				    sizeof((struct zerg_status *)
+					   zh.zerg_payload)->name;;
 				name_len = 0;
 			} else {
 				name =
-				    ((struct zerg_status *)zh.
-				     zerg_payload)->name;
+				    ((struct zerg_status *)zh.zerg_payload)->
+				    name;
 				if (name[0] == ' ') {
 					name = name + 1;
 				}
@@ -401,8 +401,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			}
 			uint16_t len;
 			if (ntohs
-			    (((struct zerg_command *)zh.zerg_payload)->
-			     command) % 2 == 0) {
+			    (((struct zerg_command *)zh.
+			      zerg_payload)->command) % 2 == 0) {
 				len = 2;	// Size of command payload for even commands
 			} else {
 				len = 8;	// Size of command payload for odd commands
@@ -890,7 +890,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			return (0);
 		}
 		float bearing = reverse_float(strtof(word, &err));
-		zc->parameter_2 = bearing;
+		zc->parameter_2f = bearing;
 		if (*err) {
 			fprintf(stderr,
 				"Expected Bearing value; received \"%s\"\n",
@@ -1011,7 +1011,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			free(zc);
 			return (0);
 		}
-		zc->parameter_2 = htonl(strtol(word, &err, 10));
+		zc->parameter_2i = htonl(strtol(word, &err, 10));
 		if (*err) {
 			fprintf(stderr, "Expected Group ID; received \"%s\"\n",
 				word);
@@ -1053,7 +1053,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			free(zc);
 			return (0);
 		}
-		zc->parameter_2 = htonl(strtol(word, &err, 10));
+		zc->parameter_2u = htonl(strtol(word, &err, 10));
 		if (*err) {
 			fprintf(stderr,
 				"Expected Sequence ID; received \"%s\"\n",
