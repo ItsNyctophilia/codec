@@ -658,7 +658,7 @@ void print_gps(struct zerg_header payload)
 		puts("W");
 	}
 
-	printf("Altitude: %f fathoms\n" "Bearing: %f deg.\n"
+	printf("Altitude: %f fathoms\n" "Bearing: %f degrees\n"
 	       "Speed: %f m/s\n" "Accuracy: %g m\n",
 	       altitude, bearing, speed, accuracy);
 	return;

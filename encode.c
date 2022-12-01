@@ -143,6 +143,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected \"Sequence:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -188,6 +189,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected \"From:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -230,6 +232,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected \"To:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -274,6 +277,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 		unsigned int offset = ftell(input_fo);
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected payload\n");
 			break;
 		}
 		fseek(input_fo, offset, SEEK_SET);
