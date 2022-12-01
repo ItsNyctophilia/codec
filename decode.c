@@ -50,7 +50,15 @@ int main(int argc, char *argv[])
 
 	struct pcap_header fh;	// [f]ile [h]eader
 	bool little_endian = true;	// Denotes the endianness of the pcap headers
-	fread(&fh, 1, sizeof(fh), fo);
+	int read_items = fread(&fh, sizeof(fh), 1, fo);
+	if (read_items != 1) {
+		fprintf(stderr,
+			"%s is not of a type that is currently supported\n",
+			argv[1]);
+		fclose(fo);
+		free(payloads);
+		return (SUCCESS);
+	}
 	if (fh.magic_number == 0xA1B2C3D4) {
 		// Case: Packet has same byte order as host (Little Endian)
 		if (fh.major_version != 2 || fh.minor_version != 4) {
@@ -295,6 +303,7 @@ int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
 	// TODO: Discard packets with letter V
 	char *message = malloc(length + 1);	// Message + '\0'
 	if (!message) {
+		fprintf(stderr, "Memory allocation error.\n");
 		return (0);
 	}
 	size_t read_length = fread(message, 1, length, fo);
@@ -306,6 +315,7 @@ int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
 	message[length] = '\0';
 	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
 	if (!message_struct) {
+		fprintf(stderr, "Memory allocation error.\n");
 		free(message);
 		return (0);
 	}
@@ -320,10 +330,12 @@ int load_status(struct zerg_header *payloads, size_t length, FILE * fo)
 	size_t string_len = length - 12;
 	char *name = malloc(string_len + 1);	// String + '\0'
 	if (!name) {
+		fprintf(stderr, "Memory allocation error.\n");
 		return (0);
 	}
 	struct zerg_status *status_struct = malloc(sizeof(*status_struct));
 	if (!status_struct) {
+		fprintf(stderr, "Memory allocation error.\n");
 		free(name);
 		return (0);
 	}
@@ -372,6 +384,7 @@ int load_gps(struct zerg_header *payloads, size_t length, FILE * fo)
 {
 	struct zerg_gps *gps_struct = malloc(sizeof(*gps_struct));
 	if (!gps_struct) {
+		fprintf(stderr, "Memory allocation error.\n");
 		return (0);
 	}
 	size_t read_length = fread(gps_struct, 1, length, fo);
@@ -550,9 +563,10 @@ void print_command(struct zerg_header payload)
 		break;
 	case 1:
 		{
-			float bearing = reverse_float((((struct zerg_command *)
-							payload.zerg_payload)->
-						       parameter_2));
+			float bearing =
+			    reverse_float((float)(((struct zerg_command *)
+						   payload.zerg_payload)->
+						  parameter_2f));
 			unsigned int distance = ntohs((((struct zerg_command *)
 							payload.
 							zerg_payload)->parameter_1));
@@ -572,8 +586,8 @@ void print_command(struct zerg_header payload)
 			unsigned int action =
 			    ((struct zerg_command *)payload.
 			     zerg_payload)->parameter_1;
-			int group = ntohl(((struct zerg_command *)
-					   payload.zerg_payload)->parameter_2);
+			int group = htonl(((struct zerg_command *)
+					   payload.zerg_payload)->parameter_2i);
 			puts("SET_GROUP");
 			switch (action) {
 			case 0:
@@ -593,7 +607,7 @@ void print_command(struct zerg_header payload)
 		{
 			unsigned int sequence = ntohl(((struct zerg_command *)
 						       payload.
-						       zerg_payload)->parameter_2);
+						       zerg_payload)->parameter_2u);
 			puts("REPEAT");
 			printf("Sequence: %u\n", sequence);
 			break;
@@ -622,21 +636,21 @@ void print_gps(struct zerg_header payload)
 	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->accuracy);
 
 	format_gps_output(latitude, &degrees, &minutes, &seconds);
-	printf("Latitude: %g° %g' %2.2f\" ", degrees, minutes, seconds);
-	if (degrees >= 0) {
+	printf("Latitude: %g° %g' %g\" ", degrees, minutes, seconds);
+	if (latitude >= 0) {
 		puts("N");
 	} else {
 		puts("S");
 	}
 	format_gps_output(longitude, &degrees, &minutes, &seconds);
-	printf("Longitude: %g° %g' %2.2f\" ", degrees, minutes, seconds);
-	if (degrees >= 0) {
+	printf("Longitude: %g° %g' %g\" ", degrees, minutes, seconds);
+	if (longitude >= 0) {
 		puts("E");
 	} else {
 		puts("W");
 	}
 
-	printf("Altitude: %f fathoms\n" "Bearing: %f deg.\n"
+	printf("Altitude: %f fathoms\n" "Bearing: %f degrees\n"
 	       "Speed: %f m/s\n" "Accuracy: %g m\n",
 	       altitude, bearing, speed, accuracy);
 	return;
@@ -648,10 +662,8 @@ void format_gps_output(const double num, double *degrees, double *minutes,
 // converted values after turning the decimal representation of the
 // longitude/latitude field into degrees/minutes/seconds format.
 {
-	double absolute = fabs(num);
-	*degrees = floor(absolute);
-	double minutes_not_truncated = (absolute - *degrees) * 60;
-	*minutes = floor(minutes_not_truncated);
-	*seconds = (minutes_not_truncated - *minutes) * 60;
+	*degrees = floor(fabs(num));
+	*minutes = floor((fabs(num) - *degrees) * 60);
+	*seconds = ((fabs(num)) - *degrees - (*minutes / 60)) * 3600;
 	return;
 }

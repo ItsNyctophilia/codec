@@ -67,6 +67,7 @@ int main(int argc, char *argv[])
 		perror(" \b");
 		return (FILE_ERROR);
 	}
+
 	parse_packet_contents(options.little_endian, input_fo, output_fo);
 
 	fclose(input_fo);
@@ -76,6 +77,9 @@ int main(int argc, char *argv[])
 
 void parse_packet_contents(bool little_endian, FILE * input_fo,
 			   FILE * output_fo)
+// Iterates through each line of the given input file, compares lines
+// of human-readable text to expected inputs and, upon validation,
+// writes the encodable packets to the given output file.
 {
 	bool file_header_present = false;
 	char *line_buf = NULL;
@@ -83,7 +87,6 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 	int eof_flag = 0;
 
 	for (;;) {
-		// TODO: Check all return codes from skip_to_next_packet
 		struct packet_header ph = { 0, 0, 0, 0 };
 		struct ethernet_header eh = { 0, 0, 0 };
 		struct ip_header ih = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -140,6 +143,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Sequence:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -185,6 +190,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected \"From:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -227,6 +233,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected \"To:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -271,6 +278,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 		unsigned int offset = ftell(input_fo);
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
+			fprintf(stderr, "Unexpected EOF; expected payload\n");
 			break;
 		}
 		fseek(input_fo, offset, SEEK_SET);
@@ -300,6 +308,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				      &eh, &ih, &uh, &zh, output_fo);
 			fwrite(message, len, 1, output_fo);
 			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				// Add buffer required by ethernet header
+				// if packet length too short
 				int padding_difference =
 				    60 - (ntohs(ih.ip_packet_length) + 14);
 				for (int i = 0; i < padding_difference; ++i) {
@@ -337,8 +347,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				// Case: Empty message
 				len =
 				    sizeof(struct zerg_status) -
-				    sizeof((struct zerg_status *) zh.
-					   zerg_payload)->name;;
+				    sizeof((struct zerg_status *)
+					   zh.zerg_payload)->name;;
 				name_len = 0;
 			} else {
 				name =
@@ -362,6 +372,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			       len - name_len, 1, output_fo);
 			fwrite(name, name_len, 1, output_fo);
 			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				// Add buffer required by ethernet header
+				// if packet length too short
 				int padding_difference =
 				    60 - (ntohs(ih.ip_packet_length) + 14);
 				for (int i = 0; i < padding_difference; ++i) {
@@ -534,6 +546,10 @@ int parse_message(struct zerg_header *zh, FILE * input_fo)
 	char *word;
 
 	struct zerg_message *zm = malloc(sizeof(*zm));
+	if (!zm) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
@@ -545,8 +561,13 @@ int parse_message(struct zerg_header *zh, FILE * input_fo)
 		free(line_buf);
 		return (-2);
 	}
-	// TODO: Error handle malloc calls
 	char *message = malloc(strlen(word) + 1);
+	if (!message) {
+		fprintf(stderr, "Memory allocation error.\n");
+		free(line_buf);
+		free(zm);
+		exit(MEMORY_ERROR);
+	}
 	strncpy(message, word, strlen(word));
 	message[strlen(word)] = '\0';
 
@@ -568,6 +589,10 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	char *err = '\0';
 
 	struct zerg_status *zs = malloc(sizeof(*zs));
+	if (!zs) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	eof_flag = getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
@@ -767,8 +792,13 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 		free(line_buf);
 		return (-2);
 	}
-	// TODO: Error handle malloc calls
 	char *name = malloc(strlen(word) + 1);
+	if (!name) {
+		fprintf(stderr, "Memory allocation error.\n");
+		free(line_buf);
+		free(zs);
+		exit(MEMORY_ERROR);
+	}
 	strncpy(name, word, strlen(word));
 	name[strlen(word)] = '\0';
 	zs->name = name;
@@ -788,6 +818,10 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 	char *err = '\0';
 
 	struct zerg_command *zc = malloc(sizeof(*zc));
+	if (!zc) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
@@ -861,7 +895,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			return (0);
 		}
 		float bearing = reverse_float(strtof(word, &err));
-		zc->parameter_2 = bearing;
+		zc->parameter_2f = bearing;
 		if (*err) {
 			fprintf(stderr,
 				"Expected Bearing value; received \"%s\"\n",
@@ -982,7 +1016,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			free(zc);
 			return (0);
 		}
-		zc->parameter_2 = htonl(strtol(word, &err, 10));
+		zc->parameter_2i = htonl(strtol(word, &err, 10));
 		if (*err) {
 			fprintf(stderr, "Expected Group ID; received \"%s\"\n",
 				word);
@@ -1024,7 +1058,7 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 			free(zc);
 			return (0);
 		}
-		zc->parameter_2 = htonl(strtol(word, &err, 10));
+		zc->parameter_2u = htonl(strtol(word, &err, 10));
 		if (*err) {
 			fprintf(stderr,
 				"Expected Sequence ID; received \"%s\"\n",
@@ -1052,12 +1086,15 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 	size_t buf_size = 0;
 	char *word;
 	char *err = '\0';
-	// TODO: Error handle malloc
 	struct zerg_gps *zg = malloc(sizeof(*zg));
+	if (!zg) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
-	word = strtok(NULL, " \n");
+	word = strtok(NULL, " \n-");
 	if (!word) {
 		fprintf(stderr, "Missing Latitude degrees value\n");
 		free(line_buf);
@@ -1066,7 +1103,7 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 	}
 	double degrees = 0;
 	degrees = strtod(word, NULL);
-	word = strtok(NULL, " \n'");
+	word = strtok(NULL, " \n'-");
 	if (!word) {
 		fprintf(stderr, "Missing Latitude minutes value\n");
 		free(line_buf);
@@ -1082,7 +1119,7 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	word = strtok(NULL, " \n\"");
+	word = strtok(NULL, " \n\"-");
 	if (!word) {
 		fprintf(stderr, "Missing Latitude seconds value\n");
 		free(line_buf);
@@ -1098,7 +1135,22 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	word = strtok(NULL, " \n\"-");
+	if (!word) {
+		fprintf(stderr, "Missing N or S\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	if (strcmp(word, "N") == 0) {
+		degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	} else if (strcmp(word, "S") == 0) {
+		degrees =
+		    (((-1) * degrees) + ((-1) * minutes / 60) +
+		     ((-1) * seconds / 3600));
+	} else {
+		fprintf(stderr, "Expected N or S; received \"%s\"\n", word);
+	}
 	zg->latitude = reverse_double(degrees);
 
 	getline(&line_buf, &buf_size, input_fo);
@@ -1159,7 +1211,22 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	word = strtok(NULL, " \n\"-");
+	if (!word) {
+		fprintf(stderr, "Missing E or W\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	if (strcmp(word, "E") == 0) {
+		degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	} else if (strcmp(word, "W") == 0) {
+		degrees =
+		    (((-1) * degrees) + ((-1) * minutes / 60) +
+		     ((-1) * seconds / 3600));
+	} else {
+		fprintf(stderr, "Expected E or W; received \"%s\"\n", word);
+	}
 	zg->longitude = reverse_double(degrees);
 
 	getline(&line_buf, &buf_size, input_fo);
