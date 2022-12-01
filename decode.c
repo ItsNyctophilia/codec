@@ -2,15 +2,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "lib/packet_fields.h"
+#include "lib/shared_fields.h"
 #include <netinet/in.h>
-
-enum return_codes {
-	SUCCESS = 0,
-	INVOCATION_ERROR = 1,
-	FILE_ERROR = 2,
-	MEMORY_ERROR = 3
-};
 
 enum program_defaults {
 	DEFAULT_PACKET_NUM = 5
@@ -18,9 +11,6 @@ enum program_defaults {
 
 int load_packets(struct zerg_header **payloads, size_t num_packets,
 		 size_t max_packets, bool little_endian, FILE * fo);
-int shift_24_bit_int(unsigned int num);
-float reverse_float(const float num);
-double reverse_double(const double num);
 int load_message(struct zerg_header *payloads, size_t length, FILE * fo);
 int load_status(struct zerg_header *payloads, size_t length, FILE * fo);
 int load_command(struct zerg_header *payloads, size_t length, FILE * fo);
@@ -394,55 +384,6 @@ int load_gps(struct zerg_header *payloads, size_t length, FILE * fo)
 	return (1);
 }
 
-int shift_24_bit_int(const unsigned int num)
-// Reverses the byte order of a 24 bit integer. Returns the reversed
-// integer.
-// TODO: Validate this is supposed to be int instead of unsigned int
-{
-	unsigned int tmp_len = 0;
-	tmp_len = num & 0xFF;
-	tmp_len = (num >> 8) & 0xFF;
-	tmp_len = (num >> 16) & 0xFF;
-	return (tmp_len);
-}
-
-float reverse_float(const float num)
-// Reverses the byte order of the passed float. Returns the 
-// reversed float.
-// Syntax taken from Gregor Brandt: https://stackoverflow.com/a/2782742.
-{
-	float ret_val;
-	char *float_to_convert = (char *)&num;
-	char *return_float = (char *)&ret_val;
-
-	return_float[0] = float_to_convert[3];
-	return_float[1] = float_to_convert[2];
-	return_float[2] = float_to_convert[1];
-	return_float[3] = float_to_convert[0];
-
-	return (ret_val);
-}
-
-double reverse_double(const double num)
-// Reverses the byte order of the passed double. Can probably
-// be merged with reverse_float later.
-{
-	double ret_val;
-	char *double_to_convert = (char *)&num;
-	char *return_double = (char *)&ret_val;
-
-	return_double[0] = double_to_convert[7];
-	return_double[1] = double_to_convert[6];
-	return_double[2] = double_to_convert[5];
-	return_double[3] = double_to_convert[4];
-	return_double[4] = double_to_convert[3];
-	return_double[5] = double_to_convert[2];
-	return_double[6] = double_to_convert[1];
-	return_double[7] = double_to_convert[0];
-
-	return (ret_val);
-}
-
 void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 // Destroys the payloads structarray at various stages of it being
 // built and filled out. Syntax taken from Liam Echlin in array.c.
@@ -450,13 +391,13 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 	for (int i = 0; i < num_payloads; ++i) {
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].
-			      zerg_payload)->message);
+			free(((struct zerg_message *)payloads[i].zerg_payload)->
+			     message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].zerg_payload)->
-			     name);
+			free(((struct zerg_status *)payloads[i].
+			      zerg_payload)->name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
@@ -529,17 +470,17 @@ void print_message(struct zerg_header payload)
 void print_status(struct zerg_header payload)
 {
 	unsigned int max_hp =
-	    shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
-			     max_hp);
-	int hp =
-	    shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
-			     current_hp);
+	    shift_24_bit_int(((struct zerg_status *)payload.
+			      zerg_payload)->max_hp);
+	int hp = 0;
+	hp = shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
+			      current_hp);
 	unsigned int armor =
 	    ((struct zerg_status *)payload.zerg_payload)->armor;
 	unsigned int type = ((struct zerg_status *)payload.zerg_payload)->type;
 	float speed =
-	    reverse_float(((struct zerg_status *)payload.zerg_payload)->
-			  max_speed);
+	    reverse_float(((struct zerg_status *)payload.
+			   zerg_payload)->max_speed);
 	printf("Max Hit Points: %u\n" "Current Hit Points: %d\n" "Armor: %u\n"
 	       "Type: ", max_hp, hp, armor);
 	switch (type) {
@@ -591,7 +532,7 @@ void print_status(struct zerg_header payload)
 	case 15:
 		puts("Devourer");
 	}
-	printf("Max Speed: %f\n", speed);
+	printf("Max Speed: %g\n", speed);
 	printf("Name: %s\n",
 	       ((struct zerg_status *)payload.zerg_payload)->name);
 	return;
@@ -610,13 +551,14 @@ void print_command(struct zerg_header payload)
 	case 1:
 		{
 			float bearing = reverse_float((((struct zerg_command *)
-							payload.
-							zerg_payload)->parameter_2));
-			unsigned int distance = ntohs((((struct zerg_command *)
 							payload.zerg_payload)->
-						       parameter_1));
+						       parameter_2));
+			unsigned int distance = ntohs((((struct zerg_command *)
+							payload.
+							zerg_payload)->parameter_1));
 			puts("GOTO");
-			printf("Bearing: %f" "Distance: %u", bearing, distance);
+			printf("Bearing: %g degrees\n" "Distance: %u m\n",
+			       bearing, distance);
 			break;
 		}
 	case 2:
@@ -628,8 +570,8 @@ void print_command(struct zerg_header payload)
 	case 5:
 		{
 			unsigned int action =
-			    ((struct zerg_command *)payload.zerg_payload)->
-			    parameter_1;
+			    ((struct zerg_command *)payload.
+			     zerg_payload)->parameter_1;
 			int group = ntohl(((struct zerg_command *)
 					   payload.zerg_payload)->parameter_2);
 			puts("SET_GROUP");
@@ -650,10 +592,10 @@ void print_command(struct zerg_header payload)
 	case 7:
 		{
 			unsigned int sequence = ntohl(((struct zerg_command *)
-						       payload.zerg_payload)->
-						      parameter_2);
+						       payload.
+						       zerg_payload)->parameter_2);
 			puts("REPEAT");
-			printf("Sequence: %u", sequence);
+			printf("Sequence: %u\n", sequence);
 			break;
 		}
 	}
@@ -666,8 +608,8 @@ void print_gps(struct zerg_header payload)
 	double minutes = 0;
 	double seconds = 0;
 	double longitude =
-	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->
-			   longitude);
+	    reverse_double(((struct zerg_gps *)payload.
+			    zerg_payload)->longitude);
 	double latitude =
 	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->latitude);
 	float altitude =
@@ -695,7 +637,7 @@ void print_gps(struct zerg_header payload)
 	}
 
 	printf("Altitude: %f fathoms\n" "Bearing: %f deg.\n"
-	       "Speed: %f m/s\n" "Accuracy: %gm\n",
+	       "Speed: %f m/s\n" "Accuracy: %g m\n",
 	       altitude, bearing, speed, accuracy);
 	return;
 }
