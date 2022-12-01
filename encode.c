@@ -3,16 +3,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include "lib/packet_fields.h"
+#include "lib/shared_fields.h"
 #include <arpa/inet.h>
 #include <unistd.h>
-
-enum return_codes {
-	SUCCESS = 0,
-	INVOCATION_ERROR = 1,
-	FILE_ERROR = 2,
-	MEMORY_ERROR = 3
-};
 
 static struct {
 	bool little_endian;
@@ -24,6 +17,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 int parse_message(struct zerg_header *zh, FILE * input_fo);
 int parse_status(struct zerg_header *zh, FILE * input_fo);
 int parse_command(struct zerg_header *zh, FILE * input_fo);
+int parse_gps(struct zerg_header *zh, FILE * input_fo);
 void set_static_headers(struct ethernet_header *eh, struct ip_header *ih,
 			struct udp_header *uh);
 void set_length_fields(bool little_endian, const uint16_t len,
@@ -34,9 +28,6 @@ void write_headers(bool *file_header_present, bool little_endian,
 		   struct ip_header *ih, struct udp_header *uh,
 		   struct zerg_header *zh, FILE * output_fo);
 int skip_to_next_packet(FILE * input_fo);
-// TODO: Add to lib later
-
-float reverse_float(const float num);
 
 int main(int argc, char *argv[])
 {
@@ -80,7 +71,7 @@ int main(int argc, char *argv[])
 
 	fclose(input_fo);
 	fclose(output_fo);
-	return (0);
+	return (SUCCESS);
 }
 
 void parse_packet_contents(bool little_endian, FILE * input_fo,
@@ -420,7 +411,43 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			}
 			free(zh.zerg_payload);
 		} else if (strcmp(word, "Latitude") == 0) {
-			puts("GPS payload input_found.");
+			zh.zerg_packet_type = 3;
+			uint16_t len = 32;
+			int return_value;
+			return_value = parse_gps(&zh, input_fo);
+			if (return_value == 0) {
+				if ((skip_to_next_packet(input_fo))) {
+					// Case: Invalid packet
+					continue;
+				} else {
+					if (line_buf) {
+						free(line_buf);
+					}
+					return;
+				}
+			} else if (return_value == -1) {
+				// Case: Unexpected EOF
+				if (line_buf) {
+					free(line_buf);
+				}
+				return;
+			}
+			set_length_fields(little_endian,
+					  sizeof(zh) - sizeof(zh.zerg_payload) +
+					  len, &ph, &ih, &uh, &zh);
+			write_headers(&file_header_present, little_endian, &ph,
+				      &eh, &ih, &uh, &zh, output_fo);
+			fwrite((struct zerg_gps *)zh.zerg_payload, len, 1,
+			       output_fo);
+			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				int padding_difference =
+				    60 - (ntohs(ih.ip_packet_length) + 14);
+				for (int i = 0; i < padding_difference; ++i) {
+					char null_buffer[] = "\0";
+					fwrite(null_buffer, 1, 1, output_fo);
+				}
+			}
+			free(zh.zerg_payload);
 		} else {
 			skip_to_next_packet(input_fo);
 			if (line_buf) {
@@ -537,13 +564,6 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	struct zerg_status *zs = malloc(sizeof(*zs));
 
 	eof_flag = getline(&line_buf, &buf_size, input_fo);
-	if (eof_flag == -1) {
-		if (line_buf) {
-			free(line_buf);
-		}
-		free(zs);
-		return (-1);
-	}
 	word = strtok(line_buf, ":");
 	word = strtok(NULL, " \n");
 	if (!word) {
@@ -796,8 +816,9 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 		command = 7;
 		zc->command = htons(command);
 	} else {
-		fprintf(stderr, "Expected Command; received \"%s\"", word);
+		fprintf(stderr, "Expected Command; received \"%s\"\n", word);
 		free(line_buf);
+		free(zc);
 		return (0);
 	}
 	if (command % 2 == 0) {
@@ -1019,6 +1040,268 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 	return (1);
 }
 
+int parse_gps(struct zerg_header *zh, FILE * input_fo)
+{
+	int eof_flag = 0;
+	char *line_buf = NULL;
+	size_t buf_size = 0;
+	char *word;
+	char *err = '\0';
+	// TODO: Error handle malloc
+	struct zerg_gps *zg = malloc(sizeof(*zg));
+
+	getline(&line_buf, &buf_size, input_fo);
+	word = strtok(line_buf, ":");
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Latitude degrees value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	double degrees = 0;
+	degrees = strtod(word, NULL);
+	word = strtok(NULL, " \n'");
+	if (!word) {
+		fprintf(stderr, "Missing Latitude minutes value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	double minutes = strtod(word, &err);
+	if (*err) {
+		fprintf(stderr,
+			"Expected Latitude minutes value; received \"%s\"\n",
+			word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n\"");
+	if (!word) {
+		fprintf(stderr, "Missing Latitude seconds value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	double seconds = strtod(word, &err);
+	if (*err) {
+		fprintf(stderr,
+			"Expected Latitude seconds value; received \"%s\"\n",
+			word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	zg->latitude = reverse_double(degrees);
+
+	getline(&line_buf, &buf_size, input_fo);
+	if (eof_flag == -1) {
+		if (line_buf) {
+			free(line_buf);
+		}
+		free(zg);
+		fprintf(stderr, "Unexpected EOF; expected \"Longitude:\"\n");
+		return (-1);
+	}
+	word = strtok(line_buf, ":");
+	if (strcmp(word, "Longitude") != 0) {
+		fprintf(stderr,
+			"Expected \"Longitude:\"; received \"%s\"\n", word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Longitude degrees value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = 0;
+	degrees = strtod(word, NULL);
+	word = strtok(NULL, " \n'");
+	if (!word) {
+		fprintf(stderr, "Missing Longitude minutes value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	minutes = strtod(word, &err);
+	if (*err) {
+		fprintf(stderr,
+			"Expected Longitude minutes value; received \"%s\"\n",
+			word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n\"");
+	if (!word) {
+		fprintf(stderr, "Missing Longitude seconds value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	seconds = strtod(word, &err);
+	if (*err) {
+		fprintf(stderr,
+			"Expected Longitude seconds value; received \"%s\"\n",
+			word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = (degrees + (minutes / 60) + (seconds / 3600));
+	zg->longitude = reverse_double(degrees);
+
+	getline(&line_buf, &buf_size, input_fo);
+	if (eof_flag == -1) {
+		if (line_buf) {
+			free(line_buf);
+		}
+		free(zg);
+		fprintf(stderr, "Unexpected EOF; expected \"Altitude:\"\n");
+		return (-1);
+	}
+	word = strtok(line_buf, ":");
+	if (strcmp(word, "Altitude") != 0) {
+		fprintf(stderr,
+			"Expected \"Altitude:\"; received \"%s\"\n", word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Altitude degrees value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = 0;
+	degrees = strtof(word, NULL);
+	word = strtok(NULL, " \n'");
+	if (!word) {
+		fprintf(stderr, "Missing Altitude minutes value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	zg->altitude = reverse_float(degrees);
+
+	getline(&line_buf, &buf_size, input_fo);
+	if (eof_flag == -1) {
+		if (line_buf) {
+			free(line_buf);
+		}
+		free(zg);
+		fprintf(stderr, "Unexpected EOF; expected \"Bearing:\"\n");
+		return (-1);
+	}
+	word = strtok(line_buf, ":");
+	if (strcmp(word, "Bearing") != 0) {
+		fprintf(stderr,
+			"Expected \"Bearing:\"; received \"%s\"\n", word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Bearing degrees value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = 0;
+	degrees = strtof(word, NULL);
+	word = strtok(NULL, " \n'");
+	if (!word) {
+		fprintf(stderr, "Missing Bearing minutes value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	zg->bearing = reverse_float(degrees);
+
+	getline(&line_buf, &buf_size, input_fo);
+	if (eof_flag == -1) {
+		if (line_buf) {
+			free(line_buf);
+		}
+		free(zg);
+		fprintf(stderr, "Unexpected EOF; expected \"Speed:\"\n");
+		return (-1);
+	}
+	word = strtok(line_buf, ":");
+	if (strcmp(word, "Speed") != 0) {
+		fprintf(stderr, "Expected \"Speed:\"; received \"%s\"\n", word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Speed degrees value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = 0;
+	degrees = strtof(word, NULL);
+	word = strtok(NULL, " \n'");
+	if (!word) {
+		fprintf(stderr, "Missing Speed minutes value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	zg->speed = reverse_float(degrees);
+
+	getline(&line_buf, &buf_size, input_fo);
+	if (eof_flag == -1) {
+		if (line_buf) {
+			free(line_buf);
+		}
+		free(zg);
+		fprintf(stderr, "Unexpected EOF; expected \"Accuracy:\"\n");
+		return (-1);
+	}
+	word = strtok(line_buf, ":");
+	if (strcmp(word, "Accuracy") != 0) {
+		fprintf(stderr,
+			"Expected \"Accuracy:\"; received \"%s\"\n", word);
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	word = strtok(NULL, " \n");
+	if (!word) {
+		fprintf(stderr, "Missing Accuracy degrees value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	degrees = 0;
+	degrees = strtof(word, NULL);
+	word = strtok(NULL, " \n'");
+	if (!word) {
+		fprintf(stderr, "Missing Accuracy minutes value\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	zg->accuracy = reverse_float(degrees);
+	zh->zerg_payload = zg;
+	if (line_buf) {
+		free(line_buf);
+	}
+	return (1);
+}
+
 int skip_to_next_packet(FILE * input_fo)
 // Sets the file pointer to the next instance of the word "Version", 
 // which is the first word in any given packet's output from decode
@@ -1069,21 +1352,4 @@ void generate_file_header(bool little_endian, struct pcap_header *fh)
 	fh->max_capture_len = 0;
 
 	return;
-}
-
-float reverse_float(const float num)
-// Reverses the byte order of the passed float. Returns the 
-// reversed float.
-// Syntax taken from Gregor Brandt: https://stackoverflow.com/a/2782742.
-{
-	float ret_val;
-	char *float_to_convert = (char *)&num;
-	char *return_float = (char *)&ret_val;
-
-	return_float[0] = float_to_convert[3];
-	return_float[1] = float_to_convert[2];
-	return_float[2] = float_to_convert[1];
-	return_float[3] = float_to_convert[0];
-
-	return (ret_val);
 }
