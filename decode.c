@@ -295,6 +295,7 @@ int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
 	// TODO: Discard packets with letter V
 	char *message = malloc(length + 1);	// Message + '\0'
 	if (!message) {
+		fprintf(stderr, "Memory allocation error.\n");
 		return (0);
 	}
 	size_t read_length = fread(message, 1, length, fo);
@@ -306,6 +307,7 @@ int load_message(struct zerg_header *payloads, size_t length, FILE * fo)
 	message[length] = '\0';
 	struct zerg_message *message_struct = malloc(sizeof(*message_struct));
 	if (!message_struct) {
+		fprintf(stderr, "Memory allocation error.\n");
 		free(message);
 		return (0);
 	}
@@ -320,10 +322,12 @@ int load_status(struct zerg_header *payloads, size_t length, FILE * fo)
 	size_t string_len = length - 12;
 	char *name = malloc(string_len + 1);	// String + '\0'
 	if (!name) {
+		fprintf(stderr, "Memory allocation error.\n");
 		return (0);
 	}
 	struct zerg_status *status_struct = malloc(sizeof(*status_struct));
 	if (!status_struct) {
+		fprintf(stderr, "Memory allocation error.\n");
 		free(name);
 		return (0);
 	}
@@ -372,6 +376,7 @@ int load_gps(struct zerg_header *payloads, size_t length, FILE * fo)
 {
 	struct zerg_gps *gps_struct = malloc(sizeof(*gps_struct));
 	if (!gps_struct) {
+		fprintf(stderr, "Memory allocation error.\n");
 		return (0);
 	}
 	size_t read_length = fread(gps_struct, 1, length, fo);

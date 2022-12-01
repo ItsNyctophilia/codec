@@ -67,6 +67,7 @@ int main(int argc, char *argv[])
 		perror(" \b");
 		return (FILE_ERROR);
 	}
+
 	parse_packet_contents(options.little_endian, input_fo, output_fo);
 
 	fclose(input_fo);
@@ -76,6 +77,9 @@ int main(int argc, char *argv[])
 
 void parse_packet_contents(bool little_endian, FILE * input_fo,
 			   FILE * output_fo)
+// Iterates through each line of the given input file, compares lines
+// of human-readable text to expected inputs and, upon validation,
+// writes the encodable packets to the given output file.
 {
 	bool file_header_present = false;
 	char *line_buf = NULL;
@@ -83,7 +87,6 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 	int eof_flag = 0;
 
 	for (;;) {
-		// TODO: Check all return codes from skip_to_next_packet
 		struct packet_header ph = { 0, 0, 0, 0 };
 		struct ethernet_header eh = { 0, 0, 0 };
 		struct ip_header ih = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -300,6 +303,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				      &eh, &ih, &uh, &zh, output_fo);
 			fwrite(message, len, 1, output_fo);
 			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				// Add buffer required by ethernet header
+				// if packet length too short
 				int padding_difference =
 				    60 - (ntohs(ih.ip_packet_length) + 14);
 				for (int i = 0; i < padding_difference; ++i) {
@@ -362,6 +367,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			       len - name_len, 1, output_fo);
 			fwrite(name, name_len, 1, output_fo);
 			if (ntohs(ih.ip_packet_length) + 14 < 60) {
+				// Add buffer required by ethernet header
+				// if packet length too short
 				int padding_difference =
 				    60 - (ntohs(ih.ip_packet_length) + 14);
 				for (int i = 0; i < padding_difference; ++i) {
@@ -534,6 +541,10 @@ int parse_message(struct zerg_header *zh, FILE * input_fo)
 	char *word;
 
 	struct zerg_message *zm = malloc(sizeof(*zm));
+	if (!zm) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
@@ -545,8 +556,13 @@ int parse_message(struct zerg_header *zh, FILE * input_fo)
 		free(line_buf);
 		return (-2);
 	}
-	// TODO: Error handle malloc calls
 	char *message = malloc(strlen(word) + 1);
+	if (!message) {
+		fprintf(stderr, "Memory allocation error.\n");
+		free(line_buf);
+		free(zm);
+		exit(MEMORY_ERROR);
+	}
 	strncpy(message, word, strlen(word));
 	message[strlen(word)] = '\0';
 
@@ -568,6 +584,10 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 	char *err = '\0';
 
 	struct zerg_status *zs = malloc(sizeof(*zs));
+	if (!zs) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	eof_flag = getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
@@ -767,8 +787,13 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 		free(line_buf);
 		return (-2);
 	}
-	// TODO: Error handle malloc calls
 	char *name = malloc(strlen(word) + 1);
+	if (!name) {
+		fprintf(stderr, "Memory allocation error.\n");
+		free(line_buf);
+		free(zs);
+		exit(MEMORY_ERROR);
+	}
 	strncpy(name, word, strlen(word));
 	name[strlen(word)] = '\0';
 	zs->name = name;
@@ -788,6 +813,10 @@ int parse_command(struct zerg_header *zh, FILE * input_fo)
 	char *err = '\0';
 
 	struct zerg_command *zc = malloc(sizeof(*zc));
+	if (!zc) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
@@ -1052,8 +1081,11 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 	size_t buf_size = 0;
 	char *word;
 	char *err = '\0';
-	// TODO: Error handle malloc
 	struct zerg_gps *zg = malloc(sizeof(*zg));
+	if (!zg) {
+		fprintf(stderr, "Memory allocation error.\n");
+		exit(MEMORY_ERROR);
+	}
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
