@@ -404,13 +404,13 @@ void destroy_payloads(struct zerg_header *payloads, int num_payloads)
 	for (int i = 0; i < num_payloads; ++i) {
 		switch (payloads[i].zerg_packet_type) {
 		case 0:
-			free(((struct zerg_message *)payloads[i].
-			      zerg_payload)->message);
+			free(((struct zerg_message *)payloads[i].zerg_payload)->
+			     message);
 			free((struct zerg_message *)payloads[i].zerg_payload);
 			break;
 		case 1:
-			free(((struct zerg_status *)payloads[i].zerg_payload)->
-			     name);
+			free(((struct zerg_status *)payloads[i].
+			      zerg_payload)->name);
 			free((struct zerg_status *)payloads[i].zerg_payload);
 			break;
 		case 2:
@@ -483,17 +483,17 @@ void print_message(struct zerg_header payload)
 void print_status(struct zerg_header payload)
 {
 	unsigned int max_hp =
-	    shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
-			     max_hp);
+	    shift_24_bit_int(((struct zerg_status *)payload.
+			      zerg_payload)->max_hp);
 	int hp = 0;
-	hp = shift_24_bit_int(((struct zerg_status *)payload.
-			       zerg_payload)->current_hp);
+	hp = shift_24_bit_int(((struct zerg_status *)payload.zerg_payload)->
+			      current_hp);
 	unsigned int armor =
 	    ((struct zerg_status *)payload.zerg_payload)->armor;
 	unsigned int type = ((struct zerg_status *)payload.zerg_payload)->type;
 	float speed =
-	    reverse_float(((struct zerg_status *)payload.zerg_payload)->
-			  max_speed);
+	    reverse_float(((struct zerg_status *)payload.
+			   zerg_payload)->max_speed);
 	printf("Max Hit Points: %u\n" "Current Hit Points: %d\n" "Armor: %u\n"
 	       "Type: ", max_hp, hp, armor);
 	switch (type) {
@@ -565,11 +565,11 @@ void print_command(struct zerg_header payload)
 		{
 			float bearing =
 			    reverse_float((float)(((struct zerg_command *)
-						   payload.
-						   zerg_payload)->parameter_2f));
+						   payload.zerg_payload)->
+						  parameter_2f));
 			unsigned int distance = ntohs((((struct zerg_command *)
-							payload.zerg_payload)->
-						       parameter_1));
+							payload.
+							zerg_payload)->parameter_1));
 			puts("GOTO");
 			printf("Bearing: %g degrees\n" "Distance: %u m\n",
 			       bearing, distance);
@@ -584,8 +584,8 @@ void print_command(struct zerg_header payload)
 	case 5:
 		{
 			unsigned int action =
-			    ((struct zerg_command *)payload.zerg_payload)->
-			    parameter_1;
+			    ((struct zerg_command *)payload.
+			     zerg_payload)->parameter_1;
 			int group = htonl(((struct zerg_command *)
 					   payload.zerg_payload)->parameter_2i);
 			puts("SET_GROUP");
@@ -606,8 +606,8 @@ void print_command(struct zerg_header payload)
 	case 7:
 		{
 			unsigned int sequence = ntohl(((struct zerg_command *)
-						       payload.zerg_payload)->
-						      parameter_2u);
+						       payload.
+						       zerg_payload)->parameter_2u);
 			puts("REPEAT");
 			printf("Sequence: %u\n", sequence);
 			break;
@@ -622,8 +622,8 @@ void print_gps(struct zerg_header payload)
 	double minutes = 0;
 	double seconds = 0;
 	double longitude =
-	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->
-			   longitude);
+	    reverse_double(((struct zerg_gps *)payload.
+			    zerg_payload)->longitude);
 	double latitude =
 	    reverse_double(((struct zerg_gps *)payload.zerg_payload)->latitude);
 	float altitude =
@@ -636,22 +636,14 @@ void print_gps(struct zerg_header payload)
 	    reverse_float(((struct zerg_gps *)payload.zerg_payload)->accuracy);
 
 	format_gps_output(latitude, &degrees, &minutes, &seconds);
-	printf("Latitude: ");
-	if (latitude < 0) {
-		printf("-");
-	}
-	printf("%g° %g' %g\" ", degrees, minutes, seconds);
+	printf("Latitude: %g° %g' %g\" ", degrees, minutes, seconds);
 	if (latitude >= 0) {
 		puts("N");
 	} else {
 		puts("S");
 	}
 	format_gps_output(longitude, &degrees, &minutes, &seconds);
-	printf("Longitude: ");
-	if (longitude < 0) {
-		printf("-");
-	}
-	printf("%g° %g' %g\" ", degrees, minutes, seconds);
+	printf("Longitude: %g° %g' %g\" ", degrees, minutes, seconds);
 	if (longitude >= 0) {
 		puts("E");
 	} else {

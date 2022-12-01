@@ -143,7 +143,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 
 		eof_flag = getline(&line_buf, &buf_size, input_fo);
 		if (eof_flag == -1) {
-			fprintf(stderr, "Unexpected EOF; expected \"Sequence:\"\n");
+			fprintf(stderr,
+				"Unexpected EOF; expected \"Sequence:\"\n");
 			break;
 		}
 		word = strtok(line_buf, ":");
@@ -292,8 +293,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				len = 0;
 			} else {
 				message =
-				    ((struct zerg_message *)zh.zerg_payload)->
-				    message;
+				    ((struct zerg_message *)zh.
+				     zerg_payload)->message;
 				if (message[0] == ' ') {
 					// Remove leading space if present
 					message = message + 1;
@@ -351,8 +352,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				name_len = 0;
 			} else {
 				name =
-				    ((struct zerg_status *)zh.zerg_payload)->
-				    name;
+				    ((struct zerg_status *)zh.
+				     zerg_payload)->name;
 				if (name[0] == ' ') {
 					name = name + 1;
 				}
@@ -405,8 +406,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			}
 			uint16_t len;
 			if (ntohs
-			    (((struct zerg_command *)zh.
-			      zerg_payload)->command) % 2 == 0) {
+			    (((struct zerg_command *)zh.zerg_payload)->
+			     command) % 2 == 0) {
 				len = 2;	// Size of command payload for even commands
 			} else {
 				len = 8;	// Size of command payload for odd commands
@@ -1093,7 +1094,7 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 
 	getline(&line_buf, &buf_size, input_fo);
 	word = strtok(line_buf, ":");
-	word = strtok(NULL, " \n");
+	word = strtok(NULL, " \n-");
 	if (!word) {
 		fprintf(stderr, "Missing Latitude degrees value\n");
 		free(line_buf);
@@ -1102,7 +1103,7 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 	}
 	double degrees = 0;
 	degrees = strtod(word, NULL);
-	word = strtok(NULL, " \n'");
+	word = strtok(NULL, " \n'-");
 	if (!word) {
 		fprintf(stderr, "Missing Latitude minutes value\n");
 		free(line_buf);
@@ -1118,7 +1119,7 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	word = strtok(NULL, " \n\"");
+	word = strtok(NULL, " \n\"-");
 	if (!word) {
 		fprintf(stderr, "Missing Latitude seconds value\n");
 		free(line_buf);
@@ -1134,12 +1135,21 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	if (degrees >= 0) {
+	word = strtok(NULL, " \n\"-");
+	if (!word) {
+		fprintf(stderr, "Missing N or S\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	if (strcmp(word, "N") == 0) {
 		degrees = (degrees + (minutes / 60) + (seconds / 3600));
-	} else {
-		// If number is negative, make minutes and seconds negative
+	} else if (strcmp(word, "S") == 0) {
 		degrees =
-		    (degrees + ((-1) * minutes / 60) + ((-1) * seconds / 3600));
+		    (((-1) * degrees) + ((-1) * minutes / 60) +
+		     ((-1) * seconds / 3600));
+	} else {
+		fprintf(stderr, "Expected N or S; received \"%s\"\n", word);
 	}
 	zg->latitude = reverse_double(degrees);
 
@@ -1201,12 +1211,21 @@ int parse_gps(struct zerg_header *zh, FILE * input_fo)
 		free(zg);
 		return (0);
 	}
-	if (degrees >= 0) {
+	word = strtok(NULL, " \n\"-");
+	if (!word) {
+		fprintf(stderr, "Missing E or W\n");
+		free(line_buf);
+		free(zg);
+		return (0);
+	}
+	if (strcmp(word, "E") == 0) {
 		degrees = (degrees + (minutes / 60) + (seconds / 3600));
-	} else {
-		// If number is negative, make minutes and seconds negative
+	} else if (strcmp(word, "W") == 0) {
 		degrees =
-		    (degrees + ((-1) * minutes / 60) + ((-1) * seconds / 3600));
+		    (((-1) * degrees) + ((-1) * minutes / 60) +
+		     ((-1) * seconds / 3600));
+	} else {
+		fprintf(stderr, "Expected E or W; received \"%s\"\n", word);
 	}
 	zg->longitude = reverse_double(degrees);
 
