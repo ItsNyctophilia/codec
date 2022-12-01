@@ -285,8 +285,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				len = 0;
 			} else {
 				message =
-				    ((struct zerg_message *)zh.zerg_payload)->
-				    message;
+				    ((struct zerg_message *)zh.
+				     zerg_payload)->message;
 				if (message[0] == ' ') {
 					// Remove leading space if present
 					message = message + 1;
@@ -313,6 +313,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			// Case: Status payload
 			zh.zerg_packet_type = 1;
 			uint16_t len;
+			uint16_t name_len;
 			char *name;
 			int return_value;
 			return_value = parse_status(&zh, input_fo);
@@ -334,11 +335,15 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				return;
 			} else if (return_value == -2) {
 				// Case: Empty message
-				len = 0;
+				len =
+				    sizeof(struct zerg_status) -
+				    sizeof((struct zerg_status *) zh.
+					   zerg_payload)->name;;
+				name_len = 0;
 			} else {
 				name =
-				    ((struct zerg_status *)zh.zerg_payload)->
-				    name;
+				    ((struct zerg_status *)zh.
+				     zerg_payload)->name;
 				if (name[0] == ' ') {
 					name = name + 1;
 				}
@@ -346,6 +351,7 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 				    strlen(name) + sizeof(struct zerg_status) -
 				    sizeof((struct zerg_status *)
 					   zh.zerg_payload)->name;
+				name_len = strlen(name);
 			}
 			set_length_fields(little_endian,
 					  sizeof(zh) - sizeof(zh.zerg_payload) +
@@ -353,8 +359,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			write_headers(&file_header_present, little_endian, &ph,
 				      &eh, &ih, &uh, &zh, output_fo);
 			fwrite((struct zerg_status *)zh.zerg_payload,
-			       len - strlen(name), 1, output_fo);
-			fwrite(name, strlen(name), 1, output_fo);
+			       len - name_len, 1, output_fo);
+			fwrite(name, name_len, 1, output_fo);
 			if (ntohs(ih.ip_packet_length) + 14 < 60) {
 				int padding_difference =
 				    60 - (ntohs(ih.ip_packet_length) + 14);
@@ -388,8 +394,8 @@ void parse_packet_contents(bool little_endian, FILE * input_fo,
 			}
 			uint16_t len;
 			if (ntohs
-			    (((struct zerg_command *)zh.
-			      zerg_payload)->command) % 2 == 0) {
+			    (((struct zerg_command *)zh.zerg_payload)->
+			     command) % 2 == 0) {
 				len = 2;	// Size of command payload for even commands
 			} else {
 				len = 8;	// Size of command payload for odd commands
@@ -759,7 +765,6 @@ int parse_status(struct zerg_header *zh, FILE * input_fo)
 		zh->zerg_payload = zs;
 		zs->name = NULL;
 		free(line_buf);
-		free(zs);
 		return (-2);
 	}
 	// TODO: Error handle malloc calls
